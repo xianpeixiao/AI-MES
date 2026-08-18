@@ -2,8 +2,13 @@ package com.aimes.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aimes.common.Result;
-import com.aimes.dto.Requests.PlanSaveRequest;
+import com.aimes.dto.request.plan.PlanSaveRequest;
 import com.aimes.service.PlanService;
+import com.aimes.vo.common.PageResult;
+import com.aimes.vo.plan.PlanDetailVo;
+import com.aimes.vo.plan.PlanReleasePreviewVo;
+import com.aimes.vo.plan.PlanReleaseResultVo;
+import com.aimes.vo.plan.PlanVo;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,8 +22,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
-
 @Tag(name = "生产计划")
 @RestController
 @RequestMapping("/api/plans")
@@ -29,28 +32,28 @@ public class PlanController {
 
     @GetMapping
     @SaCheckPermission("生产计划")
-    public Result<Map<String, Object>> list(@RequestParam(defaultValue = "1") long page,
-                                            @RequestParam(defaultValue = "10") long size,
-                                            @RequestParam(required = false) String keyword,
-                                            @RequestParam(required = false) String status) {
+    public Result<PageResult<PlanVo>> list(@RequestParam(defaultValue = "1") long page,
+                                           @RequestParam(defaultValue = "10") long size,
+                                           @RequestParam(required = false) String keyword,
+                                           @RequestParam(required = false) String status) {
         return Result.ok(planService.list(page, size, keyword, status));
     }
 
     @GetMapping("/{id}")
     @SaCheckPermission("生产计划")
-    public Result<Map<String, Object>> detail(@PathVariable Long id) {
+    public Result<PlanDetailVo> detail(@PathVariable Long id) {
         return Result.ok(planService.detail(id));
     }
 
     @PostMapping
     @SaCheckPermission("生产计划")
-    public Result<Map<String, Object>> create(@Valid @RequestBody PlanSaveRequest request) {
+    public Result<PlanVo> create(@Valid @RequestBody PlanSaveRequest request) {
         return Result.ok(planService.create(request));
     }
 
     @PutMapping("/{id}")
     @SaCheckPermission("生产计划")
-    public Result<Map<String, Object>> update(@PathVariable Long id, @Valid @RequestBody PlanSaveRequest request) {
+    public Result<PlanVo> update(@PathVariable Long id, @Valid @RequestBody PlanSaveRequest request) {
         return Result.ok(planService.update(id, request));
     }
 
@@ -63,13 +66,13 @@ public class PlanController {
 
     @GetMapping("/{id}/release-preview")
     @SaCheckPermission("生产计划")
-    public Result<Map<String, Object>> releasePreview(@PathVariable Long id) {
+    public Result<PlanReleasePreviewVo> releasePreview(@PathVariable Long id) {
         return Result.ok(planService.previewRelease(id));
     }
 
     @PostMapping("/{id}/release")
     @SaCheckPermission("生产计划")
-    public Result<Map<String, Object>> release(@PathVariable Long id) {
+    public Result<PlanReleaseResultVo> release(@PathVariable Long id) {
         return Result.ok(planService.release(id));
     }
 }

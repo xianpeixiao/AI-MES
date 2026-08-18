@@ -1,8 +1,8 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.BomSaveRequest;
-import com.aimes.dto.Requests.ProductSaveRequest;
+import com.aimes.dto.request.product.BomSaveRequest;
+import com.aimes.dto.request.product.ProductSaveRequest;
 import com.aimes.entity.InvTransaction;
 import com.aimes.entity.MdmProduct;
 import com.aimes.mapper.InvTransactionMapper;
@@ -285,7 +285,7 @@ public class ProductService {
         return processRouteService.buildProductBomView(productId, product.getProductName());
     }
 
-    private MdmProduct requireProduct(Long id) {
+    public MdmProduct requireProduct(Long id) {
         MdmProduct product = mdmProductMapper.selectById(id);
         if (product == null) {
             throw new BusinessException("产品不存在");

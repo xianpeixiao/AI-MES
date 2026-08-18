@@ -1,7 +1,7 @@
 package com.aimes.service;
 
-import com.aimes.dto.Requests.CozeChatRequest;
-import com.aimes.dto.Requests.CozeSchedulingRequest;
+import com.aimes.dto.request.coze.CozeChatRequest;
+import com.aimes.dto.request.coze.CozeSchedulingRequest;
 import com.aimes.service.coze.CozeChatService;
 import com.aimes.service.coze.CozeHealthService;
 import com.aimes.service.coze.CozeSchedulingService;

@@ -1,8 +1,8 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.DeviceMaintenancePlanSaveRequest;
-import com.aimes.dto.Requests.DeviceMaintenanceSubmitRequest;
+import com.aimes.dto.request.deviceops.DeviceMaintenancePlanSaveRequest;
+import com.aimes.dto.request.deviceops.DeviceMaintenanceSubmitRequest;
 import com.aimes.entity.DevDevice;
 import com.aimes.entity.DevDeviceHistory;
 import com.aimes.entity.DevMaintenancePlan;

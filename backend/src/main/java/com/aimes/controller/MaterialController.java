@@ -2,9 +2,11 @@ package com.aimes.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aimes.common.Result;
-import com.aimes.dto.Requests.MaterialCreateRequest;
-import com.aimes.dto.Requests.MaterialUpdateRequest;
+import com.aimes.dto.request.material.MaterialCreateRequest;
+import com.aimes.dto.request.material.MaterialUpdateRequest;
 import com.aimes.service.MaterialService;
+import com.aimes.vo.material.MaterialListVo;
+import com.aimes.vo.material.MaterialVo;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -31,14 +33,14 @@ public class MaterialController {
 
     @GetMapping
     @SaCheckPermission("物料")
-    public Result<Map<String, Object>> list(@RequestParam(required = false) String keyword,
-                                            @RequestParam(required = false) String status) {
+    public Result<MaterialListVo> list(@RequestParam(required = false) String keyword,
+                                       @RequestParam(required = false) String status) {
         return Result.ok(materialService.list(keyword, status));
     }
 
     @GetMapping("/alerts")
     @SaCheckPermission("物料")
-    public Result<List<Map<String, Object>>> alerts() {
+    public Result<List<MaterialVo>> alerts() {
         return Result.ok(materialService.alerts());
     }
 
@@ -50,13 +52,13 @@ public class MaterialController {
 
     @PostMapping
     @SaCheckPermission("物料")
-    public Result<Map<String, Object>> create(@Valid @RequestBody MaterialCreateRequest request) {
+    public Result<MaterialVo> create(@Valid @RequestBody MaterialCreateRequest request) {
         return Result.ok(materialService.create(request));
     }
 
     @PutMapping("/{id}")
     @SaCheckPermission("物料")
-    public Result<Map<String, Object>> update(@PathVariable Long id, @Valid @RequestBody MaterialUpdateRequest request) {
+    public Result<MaterialVo> update(@PathVariable Long id, @Valid @RequestBody MaterialUpdateRequest request) {
         return Result.ok(materialService.update(id, request));
     }
 
@@ -73,4 +75,3 @@ public class MaterialController {
         return Result.ok("删除成功", null);
     }
 }
-

@@ -1,8 +1,8 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.DeviceRepairCreateRequest;
-import com.aimes.dto.Requests.DeviceRepairHandleRequest;
+import com.aimes.dto.request.deviceops.DeviceRepairCreateRequest;
+import com.aimes.dto.request.deviceops.DeviceRepairHandleRequest;
 import com.aimes.entity.DevDevice;
 import com.aimes.entity.DevDeviceHistory;
 import com.aimes.entity.DevRepairOrder;

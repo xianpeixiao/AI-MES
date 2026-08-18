@@ -1,7 +1,7 @@
 package com.aimes.service;
 
 import cn.dev33.satoken.stp.StpUtil;
-import com.aimes.dto.Requests.LoginRequest;
+import com.aimes.dto.request.auth.LoginRequest;
 import com.aimes.entity.SysOperationLog;
 import com.aimes.entity.SysUser;
 import com.aimes.mapper.SysOperationLogMapper;

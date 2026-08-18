@@ -3,9 +3,11 @@ package com.aimes.controller;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import com.aimes.common.Result;
-import com.aimes.dto.Requests.ExceptionCreateRequest;
-import com.aimes.dto.Requests.ExceptionHandleRequest;
+import com.aimes.dto.request.exception.ExceptionCreateRequest;
+import com.aimes.dto.request.exception.ExceptionHandleRequest;
 import com.aimes.service.ExceptionService;
+import com.aimes.vo.common.PageResult;
+import com.aimes.vo.exception.ExceptionVo;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +21,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
-
 @Tag(name = "异常管理")
 @RestController
 @RequestMapping("/api/exceptions")
@@ -31,29 +31,29 @@ public class ExceptionController {
 
     @GetMapping
     @SaCheckPermission("异常上报")
-    public Result<Map<String, Object>> list(@RequestParam(defaultValue = "1") long page,
-                                            @RequestParam(defaultValue = "10") long size,
-                                            @RequestParam(required = false) String keyword,
-                                            @RequestParam(required = false) String type,
-                                            @RequestParam(required = false) String status) {
+    public Result<PageResult<ExceptionVo>> list(@RequestParam(defaultValue = "1") long page,
+                                                @RequestParam(defaultValue = "10") long size,
+                                                @RequestParam(required = false) String keyword,
+                                                @RequestParam(required = false) String type,
+                                                @RequestParam(required = false) String status) {
         return Result.ok(exceptionService.list(page, size, keyword, type, status));
     }
 
     @GetMapping("/{id}")
     @SaCheckPermission("异常上报")
-    public Result<Map<String, Object>> detail(@PathVariable Long id) {
+    public Result<ExceptionVo> detail(@PathVariable Long id) {
         return Result.ok(exceptionService.detail(id));
     }
 
     @PostMapping
     @SaCheckPermission("异常上报")
-    public Result<Map<String, Object>> create(@Valid @RequestBody ExceptionCreateRequest request) {
+    public Result<ExceptionVo> create(@Valid @RequestBody ExceptionCreateRequest request) {
         return Result.ok(exceptionService.create(request));
     }
 
     @PutMapping("/{id}/handle")
     @SaCheckPermission(value = {"生产计划", "工单管理"}, mode = SaMode.OR)
-    public Result<Map<String, Object>> handle(@PathVariable Long id, @Valid @RequestBody ExceptionHandleRequest request) {
+    public Result<ExceptionVo> handle(@PathVariable Long id, @Valid @RequestBody ExceptionHandleRequest request) {
         return Result.ok(exceptionService.handle(id, request));
     }
 

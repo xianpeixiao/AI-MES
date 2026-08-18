@@ -4,7 +4,10 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.aimes.common.BusinessException;
 import com.aimes.common.OperationLog;
 import com.aimes.common.OperationLogRunner;
-import com.aimes.dto.Requests.LoginRequest;
+import com.aimes.converter.AuthConverter;
+import com.aimes.dto.request.auth.LoginRequest;
+import com.aimes.dto.request.auth.PasswordChangeRequest;
+import com.aimes.dto.request.auth.ProfileUpdateRequest;
 import com.aimes.entity.ProdTeam;
 import com.aimes.entity.SysUser;
 import com.aimes.mapper.ProdTeamMapper;
@@ -12,13 +15,13 @@ import com.aimes.mapper.SysUserMapper;
 import com.aimes.security.CaptchaService;
 import com.aimes.security.LoginProtectionService;
 import com.aimes.util.ClientIpUtil;
+import com.aimes.vo.auth.AuthVo;
+import com.aimes.vo.auth.CaptchaRequiredVo;
+import com.aimes.vo.auth.CaptchaVo;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -31,13 +34,14 @@ public class AuthService {
     private final LoginProtectionService loginProtectionService;
     private final RoleService roleService;
     private final OperationLogRunner operationLogRunner;
+    private final AuthConverter authConverter;
 
     @OperationLog(module = "认证", action = "登录")
-    public Map<String, Object> login(LoginRequest request) {
+    public AuthVo login(LoginRequest request) {
         return operationLogRunner.runUnchecked("认证", "登录", "login", new Object[]{request}, () -> loginInternal(request));
     }
 
-    private Map<String, Object> loginInternal(LoginRequest request) {
+    private AuthVo loginInternal(LoginRequest request) {
         String ip = ClientIpUtil.current();
         String username = request.getUsername().trim();
         loginProtectionService.checkAllowed(ip, username);
@@ -66,16 +70,16 @@ public class AuthService {
         StpUtil.logout();
     }
 
-    public Map<String, Object> info() {
+    public AuthVo info() {
         return buildAuthPayload(currentUser());
     }
 
-    public Map<String, Object> captcha() {
-        return captchaService.create();
+    public CaptchaVo captcha() {
+        return authConverter.toCaptchaVo(captchaService.create());
     }
 
-    public Map<String, Object> captchaRequired() {
-        return Map.of("required", loginProtectionService.captchaRequired(ClientIpUtil.current()));
+    public CaptchaRequiredVo captchaRequired() {
+        return authConverter.toCaptchaRequiredVo(loginProtectionService.captchaRequired(ClientIpUtil.current()));
     }
 
     public SysUser currentUser() {
@@ -86,25 +90,18 @@ public class AuthService {
         return user;
     }
 
-    private Map<String, Object> buildAuthPayload(SysUser user) {
+    private AuthVo buildAuthPayload(SysUser user) {
         ProdTeam team = user.getTeamId() == null ? null : prodTeamMapper.selectById(user.getTeamId());
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("token", StpUtil.getTokenValue());
-        data.put("tokenType", "Bearer");
-        data.put("id", user.getId());
-        data.put("username", user.getUsername());
-        data.put("realName", user.getRealName());
-        data.put("avatar", user.getAvatar());
-        data.put("role", user.getRole());
-        data.put("teamId", user.getTeamId());
-        data.put("teamName", team == null ? null : team.getTeamName());
-        data.put("status", user.getStatus());
-        data.put("permissions", roleService.getPermissionsByRoleKey(user.getRole()));
-        data.put("fullAccess", roleService.hasFullAccess(user.getRole()));
-        return data;
+        return authConverter.toVo(
+                user,
+                team,
+                StpUtil.getTokenValue(),
+                roleService.getPermissionsByRoleKey(user.getRole()),
+                roleService.hasFullAccess(user.getRole())
+        );
     }
 
-    public Map<String, Object> updateProfile(com.aimes.dto.Requests.ProfileUpdateRequest request) {
+    public AuthVo updateProfile(ProfileUpdateRequest request) {
         SysUser user = currentUser();
         user.setRealName(request.getRealName());
         user.setAvatar(request.getAvatar());
@@ -112,7 +109,7 @@ public class AuthService {
         return buildAuthPayload(user);
     }
 
-    public void changePassword(com.aimes.dto.Requests.PasswordChangeRequest request) {
+    public void changePassword(PasswordChangeRequest request) {
         SysUser user = currentUser();
         if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
             throw new BusinessException("原密码不正确");

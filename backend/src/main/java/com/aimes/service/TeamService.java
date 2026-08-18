@@ -1,13 +1,19 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.TeamSaveRequest;
+import com.aimes.converter.TeamConverter;
+import com.aimes.dto.request.team.TeamSaveRequest;
 import com.aimes.entity.ProdTeam;
 import com.aimes.entity.ProdWorkOrder;
 import com.aimes.entity.SysUser;
 import com.aimes.mapper.ProdTeamMapper;
 import com.aimes.mapper.ProdWorkOrderMapper;
 import com.aimes.mapper.SysUserMapper;
+import com.aimes.vo.team.TeamDetailVo;
+import com.aimes.vo.team.TeamMemberVo;
+import com.aimes.vo.team.TeamTaskSummaryVo;
+import com.aimes.vo.team.TeamTaskVo;
+import com.aimes.vo.team.TeamVo;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -15,9 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -27,58 +31,36 @@ public class TeamService {
     private final ProdTeamMapper prodTeamMapper;
     private final ProdWorkOrderMapper prodWorkOrderMapper;
     private final ReferentialIntegrityService referentialIntegrityService;
+    private final TeamConverter teamConverter;
 
-    public List<Map<String, Object>> list() {
+    public List<TeamVo> list() {
         return prodTeamMapper.selectList(new LambdaQueryWrapper<ProdTeam>().orderByAsc(ProdTeam::getId))
                 .stream()
-                .map(this::toView)
+                .map(this::toTeamVo)
                 .toList();
     }
 
-    public Map<String, Object> detail(Long id) {
+    public TeamDetailVo detail(Long id) {
         ProdTeam team = getTeam(id);
-        Map<String, Object> detail = new LinkedHashMap<>(toView(team));
+        TeamVo teamVo = toTeamVo(team);
         List<SysUser> members = sysUserMapper.selectList(new LambdaQueryWrapper<SysUser>()
                 .eq(SysUser::getTeamId, id)
                 .eq(SysUser::getStatus, 1)
                 .orderByAsc(SysUser::getId));
-        List<Map<String, Object>> tasks = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
+        List<TeamTaskVo> tasks = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
                         .eq(ProdWorkOrder::getTeamId, id)
                         .orderByAsc(ProdWorkOrder::getPriority)
                         .orderByDesc(ProdWorkOrder::getDeadline))
                 .stream()
-                .map(order -> {
-                    Map<String, Object> row = new LinkedHashMap<>();
-                    row.put("workOrderId", order.getId());
-                    row.put("orderNo", order.getOrderNo());
-                    row.put("productName", order.getProductName());
-                    row.put("processName", order.getProcessName());
-                    row.put("status", order.getStatus());
-                    row.put("progress", order.getProgress() == null ? 0 : order.getProgress());
-                    return row;
-                })
+                .map(teamConverter::toTaskVo)
                 .toList();
-
-        detail.put("members", members.stream().map(member -> {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("id", member.getId());
-            row.put("username", member.getUsername());
-            row.put("realName", member.getRealName());
-            row.put("role", member.getRole());
-            row.put("status", member.getStatus());
-            return row;
-        }).toList());
-        detail.put("tasks", tasks);
-        detail.put("taskSummary", Map.of(
-                "pending", tasks.stream().filter(task -> "assigned".equals(task.get("status")) || "pending".equals(task.get("status"))).count(),
-                "producing", tasks.stream().filter(task -> "producing".equals(task.get("status"))).count(),
-                "done", tasks.stream().filter(task -> "done".equals(task.get("status"))).count()
-        ));
-        return detail;
+        List<TeamMemberVo> memberVos = members.stream().map(teamConverter::toMemberVo).toList();
+        TeamTaskSummaryVo summary = teamConverter.toTaskSummary(tasks);
+        return teamConverter.toDetailVo(teamVo, memberVos, tasks, summary);
     }
 
     @Transactional
-    public Map<String, Object> create(TeamSaveRequest request) {
+    public TeamDetailVo create(TeamSaveRequest request) {
         ProdTeam team = new ProdTeam();
         team.setTeamCode(StringUtils.hasText(request.getTeamCode()) ? request.getTeamCode() : nextTeamCode());
         team.setTeamName(request.getTeamName());
@@ -91,7 +73,7 @@ public class TeamService {
     }
 
     @Transactional
-    public Map<String, Object> update(Long id, TeamSaveRequest request) {
+    public TeamDetailVo update(Long id, TeamSaveRequest request) {
         ProdTeam team = getTeam(id);
         team.setTeamName(request.getTeamName());
         team.setLeaderId(request.getLeaderId());
@@ -119,23 +101,12 @@ public class TeamService {
         return team;
     }
 
-    private Map<String, Object> toView(ProdTeam team) {
+    private TeamVo toTeamVo(ProdTeam team) {
         SysUser leader = team.getLeaderId() == null ? null : sysUserMapper.selectById(team.getLeaderId());
         long activeOrders = prodWorkOrderMapper.selectCount(new LambdaQueryWrapper<ProdWorkOrder>()
                 .eq(ProdWorkOrder::getTeamId, team.getId())
                 .in(ProdWorkOrder::getStatus, List.of("assigned", "producing", "exception")));
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("id", team.getId());
-        row.put("teamCode", team.getTeamCode());
-        row.put("teamName", team.getTeamName());
-        row.put("leaderId", team.getLeaderId());
-        row.put("leaderName", leader == null ? null : leader.getRealName());
-        row.put("memberCount", team.getMemberCount());
-        row.put("lineName", team.getLineName());
-        row.put("activeOrderCount", activeOrders);
-        row.put("createdTime", team.getCreatedTime());
-        row.put("updatedTime", team.getUpdatedTime());
-        return row;
+        return teamConverter.toVo(team, leader, activeOrders);
     }
 
     private String nextTeamCode() {

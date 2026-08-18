@@ -1,7 +1,8 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.InspectionSubmitRequest;
+import com.aimes.dto.request.quality.InspectionItemRequest;
+import com.aimes.dto.request.quality.InspectionSubmitRequest;
 import com.aimes.entity.ExcEvent;
 import com.aimes.entity.MdmOperation;
 import com.aimes.entity.ProdProcessRecord;
@@ -87,7 +88,7 @@ public class QmsInspectionService {
         boolean hasFailure = false;
         StringBuilder failDesc = new StringBuilder();
 
-        for (InspectionSubmitRequest.InspectionItemRequest item : request.getItems()) {
+        for (InspectionItemRequest item : request.getItems()) {
             String result = evaluateResult(item);
             QmsInspectionRecord inspection = new QmsInspectionRecord();
             inspection.setWorkOrderId(request.getWorkOrderId());
@@ -146,7 +147,7 @@ public class QmsInspectionService {
         return event.getId();
     }
 
-    private String evaluateResult(InspectionSubmitRequest.InspectionItemRequest item) {
+    private String evaluateResult(InspectionItemRequest item) {
         if (StringUtils.hasText(item.getResult())) {
             return "fail".equalsIgnoreCase(item.getResult()) ? "fail" : "pass";
         }

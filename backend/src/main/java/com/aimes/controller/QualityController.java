@@ -3,7 +3,7 @@ package com.aimes.controller;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import com.aimes.common.Result;
-import com.aimes.dto.Requests.InspectionSubmitRequest;
+import com.aimes.dto.request.quality.InspectionSubmitRequest;
 import com.aimes.service.QmsInspectionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

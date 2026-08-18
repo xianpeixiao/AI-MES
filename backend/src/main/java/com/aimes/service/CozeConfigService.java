@@ -1,6 +1,6 @@
 package com.aimes.service;
 
-import com.aimes.dto.Requests.CozeConfigSaveRequest;
+import com.aimes.dto.request.coze.CozeConfigSaveRequest;
 import com.aimes.entity.SysCozeConfig;
 import com.aimes.mapper.SysCozeConfigMapper;
 import lombok.RequiredArgsConstructor;

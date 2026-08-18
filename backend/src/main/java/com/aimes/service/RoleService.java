@@ -1,16 +1,16 @@
 package com.aimes.service;
 
+import com.aimes.converter.RoleConverter;
 import com.aimes.entity.SysRolePermission;
 import com.aimes.mapper.SysRolePermissionMapper;
+import com.aimes.vo.admin.RoleVo;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -41,16 +41,15 @@ public class RoleService {
     );
 
     private final SysRolePermissionMapper sysRolePermissionMapper;
+    private final RoleConverter roleConverter;
 
-    public List<Map<String, Object>> list() {
-        List<Map<String, Object>> result = new ArrayList<>();
-        
+    public List<RoleVo> list() {
+        List<RoleVo> result = new ArrayList<>();
         result.add(getRoleData("admin", "管理员"));
         result.add(getRoleData("supervisor", "车间主管"));
         result.add(getRoleData("planner", "计划与物控"));
         result.add(getRoleData("engineer", "设备与品质工程师"));
         result.add(getRoleData("worker", "普通员工"));
-        
         return result;
     }
 
@@ -77,16 +76,10 @@ public class RoleService {
         return ADMIN_ROLE_KEY.equals(roleKey);
     }
 
-    private Map<String, Object> getRoleData(String roleKey, String roleName) {
+    private RoleVo getRoleData(String roleKey, String roleName) {
         boolean fullAccess = hasFullAccess(roleKey);
         List<String> permissions = getPermissionsByRoleKey(roleKey);
-
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("id", roleKey);
-        map.put("roleName", roleName);
-        map.put("permissions", permissions);
-        map.put("fullAccess", fullAccess);
-        return map;
+        return roleConverter.toVo(roleKey, roleName, permissions, fullAccess);
     }
 
     @Transactional
@@ -107,4 +100,3 @@ public class RoleService {
         }
     }
 }
-

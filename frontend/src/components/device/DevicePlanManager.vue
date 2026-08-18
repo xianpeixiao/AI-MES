@@ -338,7 +338,7 @@ function resetMaintenanceForm() {
 }
 
 function toNullableBindId(id?: number | string | null) {
-  return id != null && id !== '' ? id : null
+  return id != null && id !== '' ? id : undefined
 }
 
 function openInspectionForm(row?: DeviceInspectionPlan) {

@@ -1,11 +1,13 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.UserSaveRequest;
+import com.aimes.converter.UserConverter;
+import com.aimes.dto.request.admin.UserSaveRequest;
 import com.aimes.entity.ProdTeam;
 import com.aimes.entity.SysUser;
 import com.aimes.mapper.ProdTeamMapper;
 import com.aimes.mapper.SysUserMapper;
+import com.aimes.vo.admin.UserVo;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
@@ -14,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,21 +27,21 @@ public class UserAdminService {
     private final ProdTeamMapper prodTeamMapper;
     private final PasswordEncoder passwordEncoder;
     private final ReferentialIntegrityService referentialIntegrityService;
+    private final UserConverter userConverter;
 
-    public List<Map<String, Object>> list() {
+    public List<UserVo> list() {
         return sysUserMapper.selectList(new LambdaQueryWrapper<SysUser>().orderByDesc(SysUser::getId))
                 .stream()
-                .map(this::toView)
+                .map(this::toVo)
                 .toList();
     }
 
-    public Map<String, Object> detail(Long id) {
-        SysUser user = requireUser(id);
-        return toView(user);
+    public UserVo detail(Long id) {
+        return toVo(requireUser(id));
     }
 
     @Transactional
-    public Map<String, Object> create(UserSaveRequest request) {
+    public UserVo create(UserSaveRequest request) {
         ensureUniqueUsername(request.getUsername(), null);
         SysUser user = new SysUser();
         user.setUsername(request.getUsername());
@@ -51,11 +52,11 @@ public class UserAdminService {
         user.setStatus(request.getStatus());
         sysUserMapper.insert(user);
         syncTeamMemberCount(request.getTeamId());
-        return toView(user);
+        return toVo(user);
     }
 
     @Transactional
-    public Map<String, Object> update(Long id, UserSaveRequest request) {
+    public UserVo update(Long id, UserSaveRequest request) {
         SysUser user = requireUser(id);
         ensureUniqueUsername(request.getUsername(), id);
         user.setUsername(request.getUsername());
@@ -70,7 +71,7 @@ public class UserAdminService {
         sysUserMapper.updateById(user);
         syncTeamMemberCount(oldTeamId);
         syncTeamMemberCount(user.getTeamId());
-        return toView(user);
+        return toVo(user);
     }
 
     @Transactional
@@ -82,11 +83,11 @@ public class UserAdminService {
     }
 
     @Transactional
-    public Map<String, Object> toggleStatus(Long id) {
+    public UserVo toggleStatus(Long id) {
         SysUser user = requireUser(id);
         user.setStatus(user.getStatus() != null && user.getStatus() == 1 ? 0 : 1);
         sysUserMapper.updateById(user);
-        return toView(user);
+        return toVo(user);
     }
 
     @Transactional
@@ -134,18 +135,8 @@ public class UserAdminService {
         prodTeamMapper.updateById(team);
     }
 
-    private Map<String, Object> toView(SysUser user) {
+    private UserVo toVo(SysUser user) {
         ProdTeam team = user.getTeamId() == null ? null : prodTeamMapper.selectById(user.getTeamId());
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("id", user.getId());
-        row.put("username", user.getUsername());
-        row.put("realName", user.getRealName());
-        row.put("role", user.getRole());
-        row.put("teamId", user.getTeamId());
-        row.put("teamName", team == null ? null : team.getTeamName());
-        row.put("status", user.getStatus());
-        row.put("createTime", user.getCreateTime());
-        row.put("updateTime", user.getUpdateTime());
-        return row;
+        return userConverter.toVo(user, team);
     }
 }

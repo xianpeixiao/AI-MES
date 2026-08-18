@@ -2,8 +2,8 @@ package com.aimes.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aimes.common.Result;
-import com.aimes.dto.Requests.DeviceInspectionPlanSaveRequest;
-import com.aimes.dto.Requests.DeviceInspectionSubmitRequest;
+import com.aimes.dto.request.deviceops.DeviceInspectionPlanSaveRequest;
+import com.aimes.dto.request.deviceops.DeviceInspectionSubmitRequest;
 import com.aimes.service.DeviceInspectionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;

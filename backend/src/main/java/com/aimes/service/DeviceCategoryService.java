@@ -1,7 +1,7 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.DeviceCategorySaveRequest;
+import com.aimes.dto.request.device.DeviceCategorySaveRequest;
 import com.aimes.entity.DevDevice;
 import com.aimes.entity.DevDeviceCategory;
 import com.aimes.mapper.DevDeviceCategoryMapper;

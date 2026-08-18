@@ -2,9 +2,10 @@ package com.aimes.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aimes.common.Result;
-import com.aimes.dto.Requests.ResetPasswordRequest;
-import com.aimes.dto.Requests.UserSaveRequest;
+import com.aimes.dto.request.admin.ResetPasswordRequest;
+import com.aimes.dto.request.admin.UserSaveRequest;
 import com.aimes.service.UserAdminService;
+import com.aimes.vo.admin.UserVo;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -30,33 +31,33 @@ public class UserAdminController {
     private final UserAdminService userAdminService;
 
     @GetMapping
-    public Result<List<Map<String, Object>>> list() {
+    public Result<List<UserVo>> list() {
         return Result.ok(userAdminService.list());
     }
 
     @GetMapping("/{id}")
-    public Result<Map<String, Object>> detail(@PathVariable Long id) {
+    public Result<UserVo> detail(@PathVariable Long id) {
         return Result.ok(userAdminService.detail(id));
     }
 
     @PostMapping
-    public Result<Map<String, Object>> create(@Valid @RequestBody UserSaveRequest request) {
+    public Result<UserVo> create(@Valid @RequestBody UserSaveRequest request) {
         return Result.ok(userAdminService.create(request));
     }
 
     @PutMapping("/{id}")
-    public Result<Map<String, Object>> update(@PathVariable Long id, @Valid @RequestBody UserSaveRequest request) {
+    public Result<UserVo> update(@PathVariable Long id, @Valid @RequestBody UserSaveRequest request) {
         return Result.ok(userAdminService.update(id, request));
     }
 
     @PostMapping("/{id}/reset-password")
     public Result<Map<String, Object>> resetPassword(@PathVariable Long id,
-                                                       @Valid @RequestBody ResetPasswordRequest request) {
+                                                     @Valid @RequestBody ResetPasswordRequest request) {
         return Result.ok(userAdminService.resetPassword(id, request.getPassword()));
     }
 
     @PostMapping("/{id}/toggle-status")
-    public Result<Map<String, Object>> toggleStatus(@PathVariable Long id) {
+    public Result<UserVo> toggleStatus(@PathVariable Long id) {
         return Result.ok(userAdminService.toggleStatus(id));
     }
 

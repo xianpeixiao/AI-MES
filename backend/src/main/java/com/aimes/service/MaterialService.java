@@ -1,12 +1,15 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.MaterialCreateRequest;
-import com.aimes.dto.Requests.MaterialUpdateRequest;
+import com.aimes.converter.MaterialConverter;
+import com.aimes.dto.request.material.MaterialCreateRequest;
+import com.aimes.dto.request.material.MaterialUpdateRequest;
 import com.aimes.entity.InvTransaction;
 import com.aimes.entity.MatMaterial;
 import com.aimes.mapper.InvTransactionMapper;
 import com.aimes.mapper.MatMaterialMapper;
+import com.aimes.vo.material.MaterialListVo;
+import com.aimes.vo.material.MaterialVo;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -32,9 +35,10 @@ public class MaterialService {
     private final com.aimes.mapper.SysUserMapper sysUserMapper;
     private final SysNotificationService sysNotificationService;
     private final AuthService authService;
+    private final MaterialConverter materialConverter;
 
-    public Map<String, Object> list(String keyword, String status) {
-        List<Map<String, Object>> records = matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
+    public MaterialListVo list(String keyword, String status) {
+        List<MaterialVo> records = matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
                         .and(StringUtils.hasText(keyword), w -> w.like(MatMaterial::getMaterialCode, keyword)
                                 .or()
                                 .like(MatMaterial::getMaterialName, keyword))
@@ -42,26 +46,17 @@ public class MaterialService {
                         .orderByDesc(MatMaterial::getAlertStatus)
                         .orderByAsc(MatMaterial::getStockQty))
                 .stream()
-                .map(this::toView)
+                .map(materialConverter::toVo)
                 .toList();
-
-        long warningCount = records.stream().filter(item -> "warning".equals(item.get("alertStatus"))).count();
-        return Map.of(
-                "summary", Map.of(
-                        "total", records.size(),
-                        "normal", records.size() - warningCount,
-                        "warning", warningCount
-                ),
-                "records", records
-        );
+        return materialConverter.toListVo(records);
     }
 
-    public List<Map<String, Object>> alerts() {
+    public List<MaterialVo> alerts() {
         return matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
                         .eq(MatMaterial::getAlertStatus, "warning")
                         .orderByAsc(MatMaterial::getStockQty))
                 .stream()
-                .map(this::toView)
+                .map(materialConverter::toVo)
                 .toList();
     }
 
@@ -80,7 +75,7 @@ public class MaterialService {
     }
 
     @Transactional
-    public Map<String, Object> create(MaterialCreateRequest request) {
+    public MaterialVo create(MaterialCreateRequest request) {
         String code = StringUtils.hasText(request.getMaterialCode())
                 ? request.getMaterialCode().trim()
                 : nextMaterialCode();
@@ -109,11 +104,11 @@ public class MaterialService {
             recordTransaction(material.getId(), "in", stockQty, BigDecimal.ZERO, stockQty,
                     "material", material.getId(), "期初入库");
         }
-        return toView(material);
+        return materialConverter.toVo(material);
     }
 
     @Transactional
-    public Map<String, Object> update(Long id, MaterialUpdateRequest request) {
+    public MaterialVo update(Long id, MaterialUpdateRequest request) {
         MatMaterial material = matMaterialMapper.selectById(id);
         if (material == null) {
             throw new BusinessException("物料不存在");
@@ -177,7 +172,7 @@ public class MaterialService {
             }
         }
         
-        return toView(material);
+        return materialConverter.toVo(material);
     }
 
     @Transactional
@@ -322,26 +317,6 @@ public class MaterialService {
         row.put("operatorId", txn.getOperatorId());
         row.put("remark", txn.getRemark());
         row.put("createdTime", txn.getCreatedTime());
-        return row;
-    }
-
-    private Map<String, Object> toView(MatMaterial material) {
-        BigDecimal gap = material.getSafetyStock().subtract(material.getStockQty());
-        if (gap.compareTo(BigDecimal.ZERO) < 0) {
-            gap = BigDecimal.ZERO;
-        }
-
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("id", material.getId());
-        row.put("materialCode", material.getMaterialCode());
-        row.put("materialName", material.getMaterialName());
-        row.put("stockQty", material.getStockQty());
-        row.put("safetyStock", material.getSafetyStock());
-        row.put("gap", gap);
-        row.put("unit", material.getUnit());
-        row.put("alertStatus", material.getAlertStatus());
-        row.put("remark", material.getRemark());
-        row.put("updatedTime", material.getUpdatedTime());
         return row;
     }
 

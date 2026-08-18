@@ -3,6 +3,7 @@ package com.aimes.controller;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aimes.common.Result;
 import com.aimes.service.RoleService;
+import com.aimes.vo.admin.RoleVo;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,7 +14,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
 @Tag(name = "角色权限")
 @RestController
@@ -25,7 +25,7 @@ public class RoleController {
     private final RoleService roleService;
 
     @GetMapping
-    public Result<List<Map<String, Object>>> list() {
+    public Result<List<RoleVo>> list() {
         return Result.ok(roleService.list());
     }
 

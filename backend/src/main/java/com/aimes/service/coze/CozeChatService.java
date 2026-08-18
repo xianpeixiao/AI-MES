@@ -1,7 +1,7 @@
 package com.aimes.service.coze;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.CozeChatRequest;
+import com.aimes.dto.request.coze.CozeChatRequest;
 import com.aimes.entity.AiChatLog;
 import com.aimes.entity.ProdWorkOrder;
 import com.aimes.entity.SysUser;

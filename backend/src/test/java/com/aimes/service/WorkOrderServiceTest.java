@@ -2,7 +2,7 @@ package com.aimes.service;
 
 import com.aimes.common.OperationLogRunner;
 import com.aimes.config.AimesProperties;
-import com.aimes.dto.Requests.WorkOrderAssignRequest;
+import com.aimes.dto.request.workorder.WorkOrderAssignRequest;
 import com.aimes.entity.ProdProcessRecord;
 import com.aimes.entity.ProdWorkOrder;
 import com.aimes.entity.SysUser;
@@ -17,6 +17,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.util.concurrent.Callable;
 import java.util.List;
@@ -28,11 +30,13 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class WorkOrderServiceTest {
 
     @Mock
@@ -69,7 +73,7 @@ class WorkOrderServiceTest {
 
     @org.junit.jupiter.api.BeforeEach
     void setUpRunner() throws Exception {
-        when(operationLogRunner.runUnchecked(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+        lenient().when(operationLogRunner.runUnchecked(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             Callable<?> callable = invocation.getArgument(4);
             return callable.call();
         });
@@ -175,10 +179,10 @@ class WorkOrderServiceTest {
     }
 
     private void stubDetailQueries(ProdWorkOrder order) {
-        when(prodPlanMapper.selectById(any())).thenReturn(null);
-        when(prodTeamMapper.selectById(any())).thenReturn(null);
-        when(excEventMapper.selectCount(any())).thenReturn(0L);
-        when(prodProcessRecordMapper.selectList(any())).thenReturn(List.of());
+        lenient().when(prodPlanMapper.selectById(any())).thenReturn(null);
+        lenient().when(prodTeamMapper.selectById(any())).thenReturn(null);
+        lenient().when(excEventMapper.selectCount(any())).thenReturn(0L);
+        lenient().when(prodProcessRecordMapper.selectList(any())).thenReturn(List.of());
     }
 }
 

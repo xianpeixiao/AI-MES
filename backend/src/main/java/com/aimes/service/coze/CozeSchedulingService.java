@@ -1,7 +1,7 @@
 package com.aimes.service.coze;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.CozeSchedulingRequest;
+import com.aimes.dto.request.coze.CozeSchedulingRequest;
 import com.aimes.entity.ExcEvent;
 import com.aimes.entity.MatMaterial;
 import com.aimes.entity.ProdTeam;

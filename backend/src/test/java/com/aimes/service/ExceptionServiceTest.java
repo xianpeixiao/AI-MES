@@ -1,7 +1,8 @@
 package com.aimes.service;
 
-import com.aimes.dto.Requests.ExceptionCreateRequest;
-import com.aimes.dto.Requests.ExceptionHandleRequest;
+import com.aimes.dto.request.exception.ExceptionCreateRequest;
+import com.aimes.dto.request.exception.ExceptionHandleRequest;
+import com.aimes.converter.ExceptionConverter;
 import com.aimes.entity.ExcEvent;
 import com.aimes.entity.ProdProcessRecord;
 import com.aimes.entity.ProdWorkOrder;
@@ -20,7 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
+import com.aimes.vo.exception.ExceptionVo;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,6 +47,10 @@ class ExceptionServiceTest {
     private DevDeviceMapper devDeviceMapper;
     @Mock
     private DeviceService deviceService;
+    @Mock
+    private DeviceAlertPushService deviceAlertPushService;
+    @Mock
+    private ExceptionConverter exceptionConverter;
 
     @InjectMocks
     private ExceptionService exceptionService;
@@ -76,6 +81,13 @@ class ExceptionServiceTest {
         when(prodWorkOrderMapper.selectById(10L)).thenReturn(order);
         when(prodProcessRecordMapper.selectOne(any())).thenReturn(running);
         when(sysUserMapper.selectList(any())).thenReturn(List.of());
+        when(exceptionConverter.toVo(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+            ExcEvent e = invocation.getArgument(0);
+            ExceptionVo vo = new ExceptionVo();
+            vo.setId(e.getId());
+            vo.setStatus(e.getStatus());
+            return vo;
+        });
 
         exceptionService.create(request);
 
@@ -119,13 +131,20 @@ class ExceptionServiceTest {
         when(authService.currentUser()).thenReturn(user);
         when(prodWorkOrderMapper.selectById(10L)).thenReturn(order);
         when(prodProcessRecordMapper.selectOne(any())).thenReturn(paused);
+        when(exceptionConverter.toVo(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+            ExcEvent e = invocation.getArgument(0);
+            ExceptionVo vo = new ExceptionVo();
+            vo.setId(e.getId());
+            vo.setStatus(e.getStatus());
+            return vo;
+        });
 
-        Map<String, Object> result = exceptionService.handle(30L, request);
+        ExceptionVo result = exceptionService.handle(30L, request);
 
         assertEquals("closed", event.getStatus());
         assertEquals("producing", order.getStatus());
         assertEquals("running", paused.getStatus());
-        assertEquals("closed", result.get("status"));
+        assertEquals("closed", result.getStatus());
         verify(prodProcessRecordMapper).updateById(paused);
     }
 }

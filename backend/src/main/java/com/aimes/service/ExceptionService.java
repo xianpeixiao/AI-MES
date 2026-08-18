@@ -1,8 +1,9 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.ExceptionCreateRequest;
-import com.aimes.dto.Requests.ExceptionHandleRequest;
+import com.aimes.converter.ExceptionConverter;
+import com.aimes.dto.request.exception.ExceptionCreateRequest;
+import com.aimes.dto.request.exception.ExceptionHandleRequest;
 import com.aimes.entity.DevDevice;
 import com.aimes.entity.ExcEvent;
 import com.aimes.entity.ProdProcessRecord;
@@ -13,6 +14,8 @@ import com.aimes.mapper.ExcEventMapper;
 import com.aimes.mapper.ProdProcessRecordMapper;
 import com.aimes.mapper.ProdWorkOrderMapper;
 import com.aimes.mapper.SysUserMapper;
+import com.aimes.vo.common.PageResult;
+import com.aimes.vo.exception.ExceptionVo;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
@@ -21,9 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -38,6 +39,7 @@ public class ExceptionService {
     private final DevDeviceMapper devDeviceMapper;
     private final DeviceService deviceService;
     private final DeviceAlertPushService deviceAlertPushService;
+    private final ExceptionConverter exceptionConverter;
 
     @Transactional
     public void deleteByWorkOrderId(Long workOrderId) {
@@ -75,22 +77,23 @@ public class ExceptionService {
         }
     }
 
-    public Map<String, Object> list(long current, long size, String keyword, String type, String status) {
+    public PageResult<ExceptionVo> list(long current, long size, String keyword, String type, String status) {
         cleanupOrphanEvents();
         Page<ExcEvent> page = excEventMapper.selectPage(new Page<>(current, size), new LambdaQueryWrapper<ExcEvent>()
                 .like(StringUtils.hasText(keyword), ExcEvent::getEventNo, keyword)
                 .eq(StringUtils.hasText(type), ExcEvent::getEventType, type)
                 .eq(StringUtils.hasText(status), ExcEvent::getStatus, status)
                 .last("ORDER BY FIELD(status, 'open', 'processing', 'closed'), occur_time DESC"));
-        return Map.of("total", page.getTotal(), "records", page.getRecords().stream().map(this::toView).toList());
+        List<ExceptionVo> records = page.getRecords().stream().map(this::toVo).toList();
+        return PageResult.of(page.getTotal(), records);
     }
 
-    public Map<String, Object> detail(Long id) {
-        return toView(getEvent(id));
+    public ExceptionVo detail(Long id) {
+        return toVo(getEvent(id));
     }
 
     @Transactional
-    public Map<String, Object> create(ExceptionCreateRequest request) {
+    public ExceptionVo create(ExceptionCreateRequest request) {
         SysUser user = authService.currentUser();
         ProdWorkOrder order = requireOrder(request.getWorkOrderId());
         deviceService.validateDeviceForException(request.getDeviceId(), request.getEventType());
@@ -138,7 +141,7 @@ public class ExceptionService {
 
         deviceAlertPushService.pushExceptionAlert(event);
 
-        return toView(event);
+        return toVo(event);
     }
 
     private String translateType(String type) {
@@ -149,7 +152,7 @@ public class ExceptionService {
     }
 
     @Transactional
-    public Map<String, Object> handle(Long id, ExceptionHandleRequest request) {
+    public ExceptionVo handle(Long id, ExceptionHandleRequest request) {
         ExcEvent event = getEvent(id);
         SysUser user = authService.currentUser();
         ProdWorkOrder order = requireOrder(event.getWorkOrderId());
@@ -181,7 +184,7 @@ public class ExceptionService {
         if (event.getDeviceId() != null && "device".equals(event.getEventType())) {
             deviceService.onExceptionHandled(event.getDeviceId(), event.getId(), recovered, user.getId(), user.getRealName());
         }
-        return toView(event);
+        return toVo(event);
     }
 
     @Transactional
@@ -250,37 +253,12 @@ public class ExceptionService {
         return order;
     }
 
-    private Map<String, Object> toView(ExcEvent event) {
+    private ExceptionVo toVo(ExcEvent event) {
         SysUser reporter = event.getReporterId() == null ? null : sysUserMapper.selectById(event.getReporterId());
         SysUser handler = event.getHandlerId() == null ? null : sysUserMapper.selectById(event.getHandlerId());
         ProdWorkOrder workOrder = event.getWorkOrderId() == null ? null : prodWorkOrderMapper.selectById(event.getWorkOrderId());
-
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("id", event.getId());
-        row.put("eventNo", event.getEventNo());
-        row.put("eventType", event.getEventType());
-        row.put("workOrderId", event.getWorkOrderId());
-        row.put("workOrderNo", workOrder == null ? null : workOrder.getOrderNo());
-        row.put("deviceId", event.getDeviceId());
-        if (event.getDeviceId() != null) {
-            DevDevice device = devDeviceMapper.selectById(event.getDeviceId());
-            if (device != null) {
-                row.put("deviceCode", device.getDeviceCode());
-                row.put("deviceName", device.getDeviceName());
-            }
-        }
-        row.put("description", event.getDescription());
-        row.put("status", event.getStatus());
-        row.put("reporterId", event.getReporterId());
-        row.put("reporterName", reporter == null ? null : reporter.getRealName());
-        row.put("handlerId", event.getHandlerId());
-        row.put("handlerName", handler == null ? null : handler.getRealName());
-        row.put("occurTime", event.getOccurTime());
-        row.put("createTime", event.getCreateTime());
-        row.put("handleTime", event.getHandleTime());
-        row.put("handleAction", event.getHandleAction());
-        row.put("handleResult", event.getHandleResult());
-        return row;
+        DevDevice device = event.getDeviceId() == null ? null : devDeviceMapper.selectById(event.getDeviceId());
+        return exceptionConverter.toVo(event, workOrder, device, reporter, handler);
     }
 
     private String nextEventNo() {

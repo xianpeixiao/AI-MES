@@ -1,8 +1,8 @@
 package com.aimes.service;
 
 import com.aimes.common.BusinessException;
-import com.aimes.dto.Requests.DeviceInspectionPlanSaveRequest;
-import com.aimes.dto.Requests.DeviceInspectionSubmitRequest;
+import com.aimes.dto.request.deviceops.DeviceInspectionPlanSaveRequest;
+import com.aimes.dto.request.deviceops.DeviceInspectionSubmitRequest;
 import com.aimes.entity.DevDevice;
 import com.aimes.entity.DevDeviceHistory;
 import com.aimes.entity.DevInspectionPlan;
