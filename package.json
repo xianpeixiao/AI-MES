@@ -5,6 +5,8 @@
     "dev:backend": "cd backend && mvn spring-boot:run",
     "dev:frontend": "cd frontend && npm run dev",
     "build:frontend": "cd frontend && npm run build",
-    "build:backend": "cd backend && mvn clean package -DskipTests"
+    "build:backend": "cd backend && mvn clean package -DskipTests",
+    "test:backend": "cd backend && mvn test",
+    "test:frontend": "cd frontend && npm test"
   }
 }
