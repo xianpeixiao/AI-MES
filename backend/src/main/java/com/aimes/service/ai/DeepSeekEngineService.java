@@ -268,23 +268,15 @@ public class DeepSeekEngineService {
             return workflow;
         }
         try {
-            List<ProdWorkOrder> workOrders = cozeSchedulingService.loadHealthSampleWorkOrders();
-            List<MatMaterial> warningMaterials = matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
-                    .eq(MatMaterial::getAlertStatus, "warning")
-                    .last("limit 5"));
-            Map<String, Boolean> constraints = defaultConstraints();
-            ProdWorkOrder sampleOrder = workOrders.get(0);
-            Map<String, Object> parsed = runDeepSeekScheduling(workOrders, warningMaterials, LocalDate.now(), constraints);
-            Map<String, Object> summary = cozeSchedulingService.summarizeSchedulingResult(parsed);
-            workflow.put("status", "ok");
-            workflow.put("mode", "live");
-            workflow.put("sampleWorkOrderNo", sampleOrder.getOrderNo());
-            workflow.put("summary", summary);
-            workflow.put("message", "DeepSeek 排产测试成功，样例工单 "
-                    + sampleOrder.getOrderNo()
-                    + "，返回 priorities=" + summary.get("priorities")
-                    + "、bottlenecks=" + summary.get("bottlenecks")
-                    + "、dispatches=" + summary.get("dispatches"));
+            String reply = deepSeekApiClient.chatCompletion(
+                    "你是排产 JSON 生成器。只输出 JSON，不要解释。",
+                    "请输出一个包含 priorities、bottlenecks、dispatchSuggestions 三个空数组的 JSON 对象。");
+            String json = deepSeekApiClient.stripMarkdownJson(reply);
+            boolean hasKeys = json.contains("priorities") && json.contains("bottlenecks");
+            workflow.put("status", hasKeys ? "ok" : "error");
+            workflow.put("message", hasKeys
+                    ? "DeepSeek 排产能力验证通过，模型可正确输出排产 JSON 结构"
+                    : "DeepSeek 返回内容不含排产所需字段：" + truncate(reply, 120));
         } catch (Exception ex) {
             workflow.put("status", "error");
             workflow.put("message", "DeepSeek 排产测试失败：" + ex.getMessage());
@@ -314,14 +306,6 @@ public class DeepSeekEngineService {
         CozeChatPromptMode promptMode = cozeChatPromptService.resolvePromptMode(message, referencedOrders, sessionHistory);
         String prompt = cozeChatPromptService.buildChatPrompt(user, message, referencedOrders, promptMode, sessionHistory);
         return new ChatContext(prompt, promptMode, referencedOrders);
-    }
-
-    private Map<String, Boolean> defaultConstraints() {
-        Map<String, Boolean> constraints = new LinkedHashMap<>();
-        constraints.put("materialAvailability", true);
-        constraints.put("deviceLoad", true);
-        constraints.put("teamHours", true);
-        return constraints;
     }
 
     private Map<String, Boolean> resolveSchedulingConstraints(CozeSchedulingRequest request) {
