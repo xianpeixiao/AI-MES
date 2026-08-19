@@ -1,6 +1,8 @@
 package com.aimes.service.coze;
 
 import com.aimes.service.CozeConfigService;
+import com.aimes.service.ai.AiProviderType;
+import com.aimes.service.ai.DeepSeekEngineService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -17,17 +19,27 @@ public class CozeHealthService {
     private final CozeApiClient cozeApiClient;
     private final CozeChatService cozeChatService;
     private final CozeSchedulingService cozeSchedulingService;
+    private final DeepSeekEngineService deepSeekEngineService;
 
     public Map<String, Object> health() {
+        AiProviderType active = cozeConfigService.resolveActiveProvider();
+        if (active == AiProviderType.DEEPSEEK) {
+            return deepSeekHealth();
+        }
+        return cozeHealth();
+    }
+
+    public Map<String, Object> cozeHealth() {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("configured", cozeConfigService.isConfigured());
+        result.put("provider", AiProviderType.COZE.wireValue());
+        result.put("configured", cozeConfigService.isCozeConfigured());
         result.put("enabled", cozeConfigService.isEnabled());
         result.put("apiUrl", cozeApiClient.apiUrl());
         result.put("botId", StringUtils.hasText(cozeApiClient.botId()) ? cozeApiClient.botId() : null);
         result.put("tokenSource", cozeConfigService.getConfigView().get("tokenSource"));
-        if (!cozeConfigService.isConfigured()) {
+        if (!cozeConfigService.isCozeConfigured()) {
             result.put("status", "mock");
-            result.put("message", "未配置 API Token 或 Bot ID，或已关闭 Coze，当前返回演示数据");
+            result.put("message", "未配置 Coze API Token 或 Bot ID，或已关闭 AI，当前返回演示数据");
             result.put("chat", Map.of("status", "skipped", "message", "未配置 Bot 连接"));
             result.put("workflow", Map.of("status", "skipped", "message", "未配置工作流"));
             return result;
@@ -45,6 +57,42 @@ public class CozeHealthService {
         } catch (Exception ex) {
             chatResult = Map.of("status", "error", "message", "Bot 对话测试失败：" + ex.getMessage());
             workflowResult = Map.of("status", "error", "message", "排产工作流测试失败：" + ex.getMessage());
+        }
+        result.put("chat", chatResult);
+        result.put("workflow", workflowResult);
+        result.put("status", resolveOverallHealthStatus(chatResult, workflowResult));
+        result.put("message", buildOverallHealthMessage(chatResult, workflowResult));
+        return result;
+    }
+
+    public Map<String, Object> deepSeekHealth() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("provider", AiProviderType.DEEPSEEK.wireValue());
+        result.put("configured", cozeConfigService.isDeepSeekConfigured());
+        result.put("enabled", cozeConfigService.isEnabled());
+        result.put("apiUrl", cozeConfigService.getEffectiveDeepSeekApiUrl());
+        result.put("model", cozeConfigService.getEffectiveDeepSeekModel());
+        result.put("deepseekKeySource", cozeConfigService.getConfigView().get("deepseekKeySource"));
+        if (!cozeConfigService.isDeepSeekConfigured()) {
+            result.put("status", "mock");
+            result.put("message", "未配置 DeepSeek API Key，或已关闭 AI，当前返回演示数据");
+            result.put("chat", Map.of("status", "skipped", "message", "未配置 DeepSeek API Key"));
+            result.put("workflow", Map.of("status", "skipped", "message", "未配置 DeepSeek API Key"));
+            return result;
+        }
+
+        Map<String, Object> chatResult;
+        Map<String, Object> workflowResult;
+        try {
+            CompletableFuture<Map<String, Object>> chatFuture =
+                    CompletableFuture.supplyAsync(deepSeekEngineService::testChatHealth);
+            CompletableFuture<Map<String, Object>> workflowFuture =
+                    CompletableFuture.supplyAsync(deepSeekEngineService::testSchedulingHealth);
+            chatResult = chatFuture.join();
+            workflowResult = workflowFuture.join();
+        } catch (Exception ex) {
+            chatResult = Map.of("status", "error", "message", "DeepSeek 对话测试失败：" + ex.getMessage());
+            workflowResult = Map.of("status", "error", "message", "DeepSeek 排产测试失败：" + ex.getMessage());
         }
         result.put("chat", chatResult);
         result.put("workflow", workflowResult);
@@ -73,6 +121,6 @@ public class CozeHealthService {
     }
 
     private String buildOverallHealthMessage(Map<String, Object> chat, Map<String, Object> workflow) {
-        return "Bot 对话：" + chat.get("status") + "；排产工作流：" + workflow.get("status");
+        return "对话：" + chat.get("status") + "；排产：" + workflow.get("status");
     }
 }

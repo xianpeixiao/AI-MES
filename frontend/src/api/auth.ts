@@ -61,7 +61,7 @@ export function getCaptcha() {
 export function getCurrentUser() {
   return request
     .get<AuthPayload>('/auth/info', {
-      timeout: 8000,
+      timeout: 30000,
       skipErrorHandler: true,
       skipUnauthorizedRedirect: true
     } as ExtendedRequestConfig)

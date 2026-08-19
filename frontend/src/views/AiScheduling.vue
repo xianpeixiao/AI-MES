@@ -196,7 +196,7 @@
             </div>
             <div v-if="result" class="result-card__actions">
               <el-tag v-if="resultMode" size="small" :type="resultMode === 'live' ? 'success' : 'info'" effect="plain">
-                {{ resultMode === 'live' ? 'Coze 工作流' : '演示数据' }}
+                {{ resultMode === 'live' ? (resultProvider === 'deepseek' ? 'DeepSeek 排产' : 'Coze 工作流') : '演示数据' }}
               </el-tag>
               <el-button type="primary" class="apply-btn" :loading="applying" @click="openApplyPreview">
                 应用建议
@@ -208,7 +208,7 @@
         <div class="result-body">
         <div v-if="loading" class="loading-state">
           <el-skeleton animated :rows="8" />
-          <div class="loading-text">AI 正在调用 Coze 工作流分析排产方案，约需 30～90 秒，请勿关闭页面…</div>
+          <div class="loading-text">AI 正在分析排产方案（Coze 工作流约 30～90 秒，DeepSeek 排产约 10～60 秒），请勿关闭页面…</div>
           <el-progress :percentage="85" status="success" :indeterminate="true" class="custom-progress" />
         </div>
 
@@ -648,6 +648,7 @@ const {
   activePreset,
   result,
   resultMode,
+  resultProvider,
   resultHint,
   resultSummary,
   appliedConstraints,
@@ -846,12 +847,24 @@ async function generateSuggestions() {
       teamConstraint: form.teamConstraint
     })
     const payload = (response as unknown as Record<string, unknown>) ?? {}
-    const mode = payload.mode === 'live' ? 'live' : 'mock'
+    const modeValue = String(payload.mode ?? '')
+    const mode = modeValue === 'live' || modeValue === 'live-deepseek' ? 'live' : 'mock'
+    const providerRaw = String(payload.provider ?? '')
+    const resultProvider = providerRaw === 'deepseek'
+      ? 'deepseek'
+      : providerRaw === 'coze'
+        ? 'coze'
+        : modeValue === 'live-deepseek'
+          ? 'deepseek'
+          : mode === 'live'
+            ? 'coze'
+            : ''
     const constraintPayload = (payload.constraints as Record<string, boolean> | undefined) ?? {}
     const dataObj = (payload.result as Record<string, unknown>) ?? payload
     schedulingStore.setSchedulingResult({
       result: mapSchedulingResult(dataObj),
       resultMode: mode,
+      resultProvider,
       resultSummary: String(dataObj.summary ?? ''),
       resultHint: String(payload.message ?? ''),
       appliedConstraints: {
@@ -868,7 +881,7 @@ async function generateSuggestions() {
   } catch (error) {
     console.error('[AiScheduling] 获取排产建议失败', error)
     const message = error instanceof Error ? error.message : '获取排产建议失败'
-    ElMessage.error(message.includes('timeout') ? 'AI 排产请求超时（工作流约需 30～90 秒），请稍后重试' : message)
+    ElMessage.error(message.includes('timeout') ? 'AI 排产请求超时，请稍后重试' : message)
   } finally {
     loading.value = false
   }

@@ -12,6 +12,7 @@ import com.aimes.service.DeviceService;
 import com.aimes.service.PlanService;
 import com.aimes.service.ProcessRouteService;
 import com.aimes.service.ProductService;
+import com.aimes.service.knowledge.KnowledgeRetrievalService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -45,6 +46,8 @@ class CozeChatPromptServiceTest {
     private ProcessRouteService processRouteService;
     @Mock
     private ProductService productService;
+    @Mock
+    private KnowledgeRetrievalService knowledgeRetrievalService;
 
     @InjectMocks
     private CozeChatPromptService cozeChatPromptService;

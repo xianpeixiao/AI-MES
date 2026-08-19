@@ -126,14 +126,20 @@ export const useChatStore = defineStore('chat', () => {
                 resolvedSessionId = meta.sessionId
               }
             } catch (ignored) {}
-          } else if (event === 'conversation.message.delta') {
+          } else if (event === 'conversation.message.delta' || event === 'conversation.message.completed') {
             try {
               const payload = JSON.parse(data)
               if (payload.type === 'answer' && payload.content) {
                 const assistantMessage = findMessage(pendingId)
                 if (!assistantMessage) return
                 assistantMessage.pending = false
-                assistantMessage.content += payload.content
+                if (event === 'conversation.message.completed') {
+                  if (!assistantMessage.content) {
+                    assistantMessage.content = String(payload.content)
+                  }
+                } else {
+                  assistantMessage.content += payload.content
+                }
               }
             } catch (ignored) {}
           } else if (event === 'error') {

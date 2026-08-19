@@ -220,7 +220,11 @@ export interface CozeSchedulingResponse {
   suggestions: SchedulingSuggestion[]
 }
 
+export type AiProvider = 'coze' | 'deepseek' | 'auto'
+
 export interface CozeConfig {
+  aiProvider?: AiProvider
+  activeProvider?: AiProvider
   botId: string
   apiUrl: string
   workflowId?: string
@@ -229,23 +233,37 @@ export interface CozeConfig {
   hasApiToken?: boolean
   apiTokenMasked?: string
   configured?: boolean
+  cozeConfigured?: boolean
+  deepseekConfigured?: boolean
+  activeConfigured?: boolean
+  deepseekApiUrl?: string
+  deepseekModel?: string
+  hasDeepseekApiKey?: boolean
+  deepseekApiKeyMasked?: string
   tokenSource?: 'database' | 'env' | 'none' | string
   botSource?: 'database' | 'env' | 'none' | string
+  deepseekKeySource?: 'database' | 'env' | 'none' | string
   updateTime?: string
 }
 
 export interface CozeConfigSavePayload {
+  aiProvider?: AiProvider
   apiToken?: string
-  botId: string
-  apiUrl: string
+  botId?: string
+  apiUrl?: string
   workflowId?: string
   welcomeMessage?: string
+  deepseekApiKey?: string
+  deepseekApiUrl?: string
+  deepseekModel?: string
   enabled: boolean
 }
 
 export interface CozeHealthCheckItem {
   status: string
   message: string
+  provider?: string
+  model?: string
   chatId?: string
   workflowId?: string | null
   mode?: string
@@ -258,11 +276,14 @@ export interface CozeHealthCheckItem {
 }
 
 export interface CozeHealthResult {
+  provider?: string
+  model?: string
   configured: boolean
   enabled: boolean
   apiUrl: string
   botId?: string | null
   tokenSource?: string
+  deepseekKeySource?: string
   status: string
   message: string
   chat?: CozeHealthCheckItem

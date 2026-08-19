@@ -19,9 +19,11 @@ import com.aimes.vo.auth.AuthVo;
 import com.aimes.vo.auth.CaptchaRequiredVo;
 import com.aimes.vo.auth.CaptchaVo;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -103,10 +105,14 @@ public class AuthService {
 
     public AuthVo updateProfile(ProfileUpdateRequest request) {
         SysUser user = currentUser();
-        user.setRealName(request.getRealName());
-        user.setAvatar(request.getAvatar());
-        sysUserMapper.updateById(user);
-        return buildAuthPayload(user);
+        LambdaUpdateWrapper<SysUser> wrapper = new LambdaUpdateWrapper<SysUser>()
+                .eq(SysUser::getId, user.getId())
+                .set(SysUser::getRealName, request.getRealName().trim());
+        if (StringUtils.hasText(request.getAvatar())) {
+            wrapper.set(SysUser::getAvatar, request.getAvatar());
+        }
+        sysUserMapper.update(null, wrapper);
+        return buildAuthPayload(currentUser());
     }
 
     public void changePassword(PasswordChangeRequest request) {

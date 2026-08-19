@@ -1,9 +1,14 @@
 server:
   port: ${SERVER_PORT:8080}
+  tomcat:
+    max-http-form-post-size: 12MB
+    max-swallow-size: 12MB
 
 spring:
   application:
     name: ai-mes-backend
+  main:
+    allow-circular-references: true
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:AI-MES}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
     username: ${DB_USER:root}
@@ -62,6 +67,11 @@ aimes:
   upload-dir: ${UPLOAD_DIR:uploads}
   plan-split-qty: ${PLAN_SPLIT_QTY:100}
   bom-pick-on-complete: ${BOM_PICK_ON_COMPLETE:true}
+  knowledge-base-dir: ${KNOWLEDGE_BASE_DIR:}
+  knowledge-top-k: ${KNOWLEDGE_TOP_K:5}
+  coze-bot-persona-path: ${COZE_BOT_PERSONA_PATH:}
+  scheduling-system-prompt-path: ${SCHEDULING_SYSTEM_PROMPT_PATH:}
+  scheduling-user-prompt-path: ${SCHEDULING_USER_PROMPT_PATH:}
 
 coze:
   api-token: ${COZE_API_TOKEN:}
@@ -69,3 +79,8 @@ coze:
   api-url: ${COZE_API_URL:https://api.coze.cn/v3}
   workflow-id: ${COZE_WORKFLOW_ID:}
   chat-poll-timeout-seconds: ${COZE_CHAT_POLL_TIMEOUT_SECONDS:90}
+
+deepseek:
+  api-key: ${DEEPSEEK_API_KEY:}
+  api-url: ${DEEPSEEK_API_URL:https://api.deepseek.com}
+  model: ${DEEPSEEK_MODEL:deepseek-chat}

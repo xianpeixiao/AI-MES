@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { renderChatMarkdown } from '@/utils/chatMarkdown'
+import { openMarkdownLink, renderChatMarkdown } from '@/utils/chatMarkdown'
 import type { CozeChatMessage } from '@/types'
 
 const props = defineProps<{
@@ -14,7 +14,7 @@ const html = computed(() => renderChatMarkdown(props.message.content))
   <div class="chat-message" :class="`chat-message--${message.role}`">
     <div class="chat-message__bubble">
       <div v-if="message.pending" class="typing-indicator"><span></span><span></span><span></span></div>
-      <div v-else v-html="html" />
+      <div v-else v-html="html" @click="openMarkdownLink" />
     </div>
   </div>
 </template>
@@ -52,6 +52,19 @@ const html = computed(() => renderChatMarkdown(props.message.content))
   background: var(--cd-primary-gradient);
   color: #fff;
   width: auto;
+}
+
+.chat-message__bubble :deep(a) {
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+  pointer-events: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-message__bubble :deep(a:hover) {
+  color: #1d4ed8;
 }
 
 .chat-message__bubble :deep(p) {
@@ -105,7 +118,11 @@ const html = computed(() => renderChatMarkdown(props.message.content))
 .chat-message__bubble :deep(ul),
 .chat-message__bubble :deep(ol) {
   margin: 6px 0;
-  padding-left: 18px;
+  padding-left: 22px;
+}
+
+.chat-message__bubble :deep(ul) {
+  list-style: disc;
 }
 
 .chat-message__bubble :deep(strong) {

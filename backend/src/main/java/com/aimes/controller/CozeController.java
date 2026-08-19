@@ -123,4 +123,28 @@ public class CozeController {
     public Result<Map<String, Object>> healthWorkflow() {
         return Result.ok(cozeService.healthWorkflow());
     }
+
+    @GetMapping("/health/coze")
+    @SaCheckPermission("Coze 配置")
+    public Result<Map<String, Object>> healthCoze() {
+        return Result.ok(cozeService.healthCoze());
+    }
+
+    @GetMapping("/health/deepseek")
+    @SaCheckPermission("Coze 配置")
+    public Result<Map<String, Object>> healthDeepSeek() {
+        return Result.ok(cozeService.healthDeepSeek());
+    }
+
+    @GetMapping("/health/deepseek/chat")
+    @SaCheckPermission("Coze 配置")
+    public Result<Map<String, Object>> healthDeepSeekChat() {
+        return Result.ok(cozeService.healthDeepSeekChat());
+    }
+
+    @GetMapping("/health/deepseek/scheduling")
+    @SaCheckPermission("Coze 配置")
+    public Result<Map<String, Object>> healthDeepSeekScheduling() {
+        return Result.ok(cozeService.healthDeepSeekScheduling());
+    }
 }

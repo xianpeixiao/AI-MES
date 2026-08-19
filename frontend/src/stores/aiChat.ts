@@ -11,6 +11,9 @@ import { getCozeWelcomeMessage } from '@/api/coze'
 import { isAbortError } from '@/api/request'
 import { normalizeList } from '@/utils/normalizeList'
 import { USER_STORAGE_KEY } from '@/api/request'
+import { useUserStore } from './user'
+
+const ACTIVE_SESSION_KEY_PREFIX = 'ai_mes_chat_active_session_'
 
 export interface ChatSession {
   id: string | number
@@ -58,6 +61,8 @@ function sessionTitleFromMessage(message: string) {
 }
 
 function readCurrentUserId(): string | number | null {
+  const userStore = useUserStore()
+  if (userStore.profile?.id != null) return userStore.profile.id
   try {
     const raw = localStorage.getItem(USER_STORAGE_KEY)
     if (!raw) return null
@@ -66,6 +71,28 @@ function readCurrentUserId(): string | number | null {
   } catch {
     return null
   }
+}
+
+function activeSessionStorageKey(userId: string | number) {
+  return `${ACTIVE_SESSION_KEY_PREFIX}${userId}`
+}
+
+function readPersistedActiveSessionId(): string | null {
+  const userId = readCurrentUserId()
+  if (userId == null) return null
+  const stored = localStorage.getItem(activeSessionStorageKey(userId))
+  return stored?.trim() || null
+}
+
+function persistActiveSessionId(sessionId: string | number | null) {
+  const userId = readCurrentUserId()
+  if (userId == null) return
+  const key = activeSessionStorageKey(userId)
+  if (sessionId == null) {
+    localStorage.removeItem(key)
+    return
+  }
+  localStorage.setItem(key, String(sessionId))
 }
 
 export const useAiChatStore = defineStore('aiChat', () => {
@@ -165,6 +192,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
 
   function activateSession(session: ChatSession) {
     activeSessionId.value = session.id
+    persistActiveSessionId(session.id)
     session.updatedAt = new Date().toISOString()
     const key = getSessionKey(session.id)
     if (!sessionMessages.value[key]?.length) {
@@ -213,6 +241,10 @@ export const useAiChatStore = defineStore('aiChat', () => {
   }
 
   function reset() {
+    const userId = ownerUserId.value ?? readCurrentUserId()
+    if (userId != null) {
+      localStorage.removeItem(activeSessionStorageKey(userId))
+    }
     resetState()
   }
 
@@ -259,11 +291,24 @@ export const useAiChatStore = defineStore('aiChat', () => {
       )
       sessions.value = sortSessions([...localOnly, ...remoteSessions])
       sessions.value.forEach(enrichSessionFullTitle)
+    } catch (error) {
+      console.warn('[AiChat] 加载会话列表失败', error)
     } finally {
       if (!silent) {
         historyLoading.value = false
       }
     }
+  }
+
+  function findRestorableSession(): ChatSession | null {
+    const persistedId = readPersistedActiveSessionId()
+    if (persistedId) {
+      const persisted = sessions.value.find((item) => String(item.id) === persistedId)
+      if (persisted && !isEmptyNewConversation(persisted)) {
+        return persisted
+      }
+    }
+    return sessions.value.find((item) => !isEmptyNewConversation(item)) ?? null
   }
 
   function findPendingSession(): ChatSession | null {
@@ -281,8 +326,16 @@ export const useAiChatStore = defineStore('aiChat', () => {
     const orphanedKey = Object.keys(pendingSessions.value).find((key) => pendingSessions.value[key])
     if (orphanedKey) {
       activeSessionId.value = orphanedKey
+      persistActiveSessionId(orphanedKey)
       return null
     }
+
+    const restorable = findRestorableSession()
+    if (restorable) {
+      await selectSession(restorable)
+      return restorable
+    }
+
     return startConversation('新对话')
   }
 
@@ -339,6 +392,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
     if (!session) return
 
     activeSessionId.value = session.id
+    persistActiveSessionId(session.id)
     const key = getSessionKey(session.id)
 
     if (sessionMessages.value[key]?.length && !isWelcomeOnly(sessionMessages.value[key])) {
@@ -400,7 +454,26 @@ export const useAiChatStore = defineStore('aiChat', () => {
     abortControllers.value[key]?.abort()
   }
 
-  async function sendMessage(text: string) {
+  async function regenerateLastReply() {
+    const key = getSessionKey(activeSessionId.value)
+    if (!key || sending.value) return
+
+    const currentMessages = sessionMessages.value[key] ?? []
+    let lastUserIndex = -1
+    for (let i = currentMessages.length - 1; i >= 0; i--) {
+      if (currentMessages[i].role === 'user') {
+        lastUserIndex = i
+        break
+      }
+    }
+    if (lastUserIndex < 0) return
+
+    const lastUserContent = currentMessages[lastUserIndex].content
+    setSessionMessages(key, currentMessages.slice(0, lastUserIndex + 1))
+    await sendMessage(lastUserContent, { regenerate: true })
+  }
+
+  async function sendMessage(text: string, options?: { regenerate?: boolean }) {
     const content = text.trim()
     if (!content) return
 
@@ -412,12 +485,15 @@ export const useAiChatStore = defineStore('aiChat', () => {
     const currentMessages = sessionMessages.value[key] ?? getWelcomeMessage(sessionId, welcomeMessage.value)
     const targetMessages = isWelcomeOnly(currentMessages) ? [] : [...currentMessages]
 
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content,
-      createdAt: nowTime()
+    if (!options?.regenerate) {
+      targetMessages.push({
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content,
+        createdAt: nowTime()
+      })
     }
+
     const aiPlaceholder: ChatMessage = {
       id: `assistant-${Date.now()}`,
       role: 'assistant',
@@ -426,7 +502,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
       loading: true
     }
 
-    targetMessages.push(userMessage, aiPlaceholder)
+    targetMessages.push(aiPlaceholder)
     setSessionMessages(key, targetMessages)
     markPending(key, true)
 
@@ -447,24 +523,25 @@ export const useAiChatStore = defineStore('aiChat', () => {
                 resolvedSessionId = meta.sessionId
               }
             } catch (ignored) {}
-          } else if (event === 'conversation.message.delta') {
-            try {
-              const payload = JSON.parse(data)
-              if (payload.type === 'answer' && payload.content) {
-                if (aiPlaceholder.loading) {
-                  aiPlaceholder.loading = false
-                }
-                aiPlaceholder.content += payload.content
-                setSessionMessages(key, [...targetMessages])
+          } else if (event === 'conversation.message.delta' || event === 'conversation.message.completed') {
+            const payload = JSON.parse(data) as { type?: string; content?: string }
+            const chunk = payload.content != null ? String(payload.content) : ''
+            if (chunk && (payload.type === 'answer' || event === 'conversation.message.completed')) {
+              if (aiPlaceholder.loading) {
+                aiPlaceholder.loading = false
               }
-            } catch (ignored) {}
-          } else if (event === 'error') {
-            try {
-              const payload = JSON.parse(data)
-              throw new Error(payload.message || '对话出错')
-            } catch (e) {
-              throw e
+              if (event === 'conversation.message.completed') {
+                if (!aiPlaceholder.content) {
+                  aiPlaceholder.content = chunk
+                }
+              } else {
+                aiPlaceholder.content += chunk
+              }
+              setSessionMessages(key, [...targetMessages])
             }
+          } else if (event === 'error') {
+            const payload = JSON.parse(data) as { message?: string }
+            throw new Error(payload.message || '对话出错')
           }
         },
         { signal: controller.signal }
@@ -472,10 +549,25 @@ export const useAiChatStore = defineStore('aiChat', () => {
 
       aiPlaceholder.loading = false
       if (!aiPlaceholder.content) {
+        try {
+          const fallback = await sendChatMessage(
+            { sessionId: resolvedSessionId, message: content },
+            { signal: controller.signal }
+          )
+          if (fallback.reply?.trim()) {
+            aiPlaceholder.content = fallback.reply.trim()
+            setSessionMessages(key, [...targetMessages])
+          }
+        } catch {
+          /* keep empty and show fallback below */
+        }
+      }
+      if (!aiPlaceholder.content) {
         aiPlaceholder.content = '助手未返回有效回复。'
       }
 
       activeSessionId.value = resolvedSessionId
+      persistActiveSessionId(resolvedSessionId)
 
       const session = sessions.value.find((item) => String(item.id) === String(sessionId))
         ?? sessions.value.find((item) => String(item.id) === String(resolvedSessionId))
@@ -557,6 +649,7 @@ export const useAiChatStore = defineStore('aiChat', () => {
     selectSession,
     removeSession,
     sendMessage,
+    regenerateLastReply,
     stopMessage,
     reset
   }

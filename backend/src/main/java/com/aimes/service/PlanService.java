@@ -83,7 +83,7 @@ public class PlanService {
         summary.put("releasedCount", plans.stream().filter(p -> "released".equals(p.getStatus())).count());
         summary.put("completedCount", plans.stream().filter(p -> PlanConverter.isCompletedStatus(p.getStatus())).count());
         summary.put("pausedCount", plans.stream().filter(p -> "paused".equals(p.getStatus())).count());
-        summary.put("plans", plans.stream().map(planConverter::toBriefVo).toList());
+        summary.put("plans", plans.stream().map(planConverter::toBriefVo).map(this::briefToMap).toList());
         return summary;
     }
 

@@ -117,8 +117,33 @@
               <div class="message-meta">{{ message.role === 'assistant' ? 'AI 助手' : '我' }} · {{ message.createdAt }}</div>
               <div class="message-bubble" :class="`message-bubble--${message.role}`">
                 <div v-if="message.loading" class="typing-indicator"><span></span><span></span><span></span></div>
-                <div v-else-if="message.role === 'assistant'" class="markdown-body" v-html="renderMarkdown(message.content)"></div>
+                <div
+                  v-else-if="message.role === 'assistant'"
+                  class="markdown-body"
+                  v-html="renderMarkdown(message.content)"
+                  @click="openMarkdownLink"
+                ></div>
                 <div v-else>{{ message.content }}</div>
+              </div>
+              <div
+                v-if="message.role === 'assistant' && !message.loading && message.content"
+                class="message-actions"
+              >
+                <button type="button" class="message-action-btn" title="复制" @click="copyMessage(message.content)">
+                  <el-icon><CopyDocument /></el-icon>
+                  <span>复制</span>
+                </button>
+                <button
+                  v-if="canRegenerate(message)"
+                  type="button"
+                  class="message-action-btn"
+                  title="重新回复"
+                  :disabled="sending"
+                  @click="regenerateReply"
+                >
+                  <el-icon><RefreshRight /></el-icon>
+                  <span>重新回复</span>
+                </button>
               </div>
             </div>
           </template>
@@ -180,11 +205,11 @@
 
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatLineRound, Delete, Fold, Loading, Memo, Plus } from '@element-plus/icons-vue'
+import { ChatLineRound, CopyDocument, Delete, Fold, Loading, Memo, Plus, RefreshRight } from '@element-plus/icons-vue'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import PageHeader from '@/components/common/PageHeader.vue'
-import { renderChatMarkdown } from '@/utils/chatMarkdown'
+import { openMarkdownLink, renderChatMarkdown } from '@/utils/chatMarkdown'
 import { getChatQuickQuestions } from '@/utils/chatQuickQuestions'
 import type { ChatSession } from '@/stores/aiChat'
 import { useAiChatStore } from '@/stores/aiChat'
@@ -297,7 +322,6 @@ const hiddenSessionCount = computed(() =>
 onMounted(async () => {
   try {
     await chatStore.ensureInitialized()
-    await chatStore.openDefaultConversation()
   } catch (error) {
     console.error(error)
     ElMessage.error('加载对话失败')
@@ -316,7 +340,17 @@ onActivated(async () => {
   try {
     await chatStore.ensureInitialized()
     if (chatStore.initialized) {
-      await chatStore.loadSessions()
+      await chatStore.loadSessions(true)
+      const activeId = chatStore.activeSessionId
+      if (activeId) {
+        const current = chatStore.sessions.find((item) => String(item.id) === String(activeId))
+        if (current) {
+          await chatStore.selectSession(current)
+          await nextTick()
+          scrollToBottom()
+          return
+        }
+      }
       await chatStore.openDefaultConversation()
     }
   } catch {
@@ -370,6 +404,36 @@ async function removeSession(session: ChatSession) {
 
 function stopGenerating() {
   chatStore.stopMessage()
+}
+
+async function copyMessage(content: string) {
+  const text = content.trim()
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败，请手动选择文本')
+  }
+}
+
+function canRegenerate(message: { id: string | number }) {
+  if (sending.value) return false
+  const lastAssistant = [...messages.value].reverse().find((item) => item.role === 'assistant' && !item.loading)
+  if (!lastAssistant || lastAssistant.id !== message.id) return false
+  return messages.value.some((item) => item.role === 'user')
+}
+
+async function regenerateReply() {
+  if (sending.value) return
+  try {
+    await chatStore.regenerateLastReply()
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('重新回复失败')
+  }
+  await nextTick()
+  scrollToBottom()
 }
 
 async function sendMessage() {
@@ -877,6 +941,43 @@ watch(
   border-top-right-radius: 6px;
 }
 
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.message-row--user .message-actions {
+  justify-content: flex-end;
+}
+
+.message-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: #fff;
+  color: #64748b;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.message-action-btn:hover:not(:disabled) {
+  color: #4f46e5;
+  border-color: rgba(99, 102, 241, 0.28);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.message-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .fresh-state {
   min-height: 100%;
   display: flex;
@@ -1022,6 +1123,19 @@ watch(
   overflow-x: auto;
 }
 
+.markdown-body :deep(a) {
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+  pointer-events: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.markdown-body :deep(a:hover) {
+  color: #1d4ed8;
+}
+
 .markdown-body :deep(pre) { overflow-x: auto; padding: 12px; background: rgba(15, 23, 42, 0.06); border-radius: 12px; }
 
 .markdown-body :deep(code) { font-family: Consolas, 'Courier New', monospace; font-size: 13px; }
@@ -1072,7 +1186,14 @@ watch(
 .markdown-body :deep(th) { background: #f8fafc; font-weight: 600; }
 
 .markdown-body :deep(ul),
-.markdown-body :deep(ol) { margin: 8px 0; padding-left: 20px; }
+.markdown-body :deep(ol) {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.markdown-body :deep(ul) {
+  list-style: disc;
+}
 
 .markdown-body :deep(li) { margin: 4px 0; }
 

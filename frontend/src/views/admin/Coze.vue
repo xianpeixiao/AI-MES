@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Connection, Setting, CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
+import { Connection, Setting, CircleCheckFilled, CircleCloseFilled, Cpu } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import AdminSubNav from '@/components/admin/AdminSubNav.vue'
-import { getCozeConfig, saveCozeConfig, testCozeChatHealth, testCozeWorkflowHealth } from '@/api/coze'
+import {
+  getCozeConfig,
+  saveCozeConfig,
+  testCozeChatHealth,
+  testCozeWorkflowHealth,
+  testDeepSeekChatHealth,
+  testDeepSeekSchedulingHealth
+} from '@/api/coze'
 import { useAiChatStore } from '@/stores/aiChat'
 import { useChatStore } from '@/stores/chat'
-import type { CozeConfig, CozeHealthCheckItem, CozeHealthResult } from '@/types'
+import type { AiProvider, CozeConfig, CozeHealthCheckItem, CozeHealthResult } from '@/types'
 
 const chatStore = useChatStore()
 const aiChatStore = useAiChatStore()
@@ -16,7 +23,19 @@ const loading = ref(false)
 const saving = ref(false)
 const testing = ref(false)
 const tokenEditing = ref(false)
+const deepseekKeyEditing = ref(false)
 const healthResult = ref<CozeHealthResult | null>(null)
+
+const providerOptions: Array<{ label: string; value: AiProvider; desc: string }> = [
+  { label: 'Coze 智能体', value: 'coze', desc: '使用 Coze Bot + Workflow' },
+  { label: 'DeepSeek 大模型', value: 'deepseek', desc: '使用 DeepSeek API 直连' },
+  { label: '自动（优先 Coze）', value: 'auto', desc: 'Coze 可用时用 Coze，否则 DeepSeek' }
+]
+
+const deepseekModelOptions = [
+  { label: 'deepseek-v4-flash', value: 'deepseek-v4-flash', desc: '极速推理模型（DeepSeek-V4-Flash）' },
+  { label: 'deepseek-v4-pro', value: 'deepseek-v4-pro', desc: '旗舰大模型（DeepSeek-V4-Pro）' }
+]
 
 function healthItemType(status?: string) {
   if (status === 'ok') return 'success'
@@ -53,9 +72,13 @@ function createFailedHealthItem(message: string): CozeHealthCheckItem {
 }
 
 function buildHealthMessage(
+  provider: AiProvider,
   chat?: CozeHealthResult['chat'],
   workflow?: CozeHealthResult['workflow']
 ) {
+  if (provider === 'deepseek') {
+    return `DeepSeek 对话：${chat?.status ?? 'unknown'}；DeepSeek 排产：${workflow?.status ?? 'unknown'}`
+  }
   return `Bot 对话：${chat?.status ?? 'unknown'}；排产工作流：${workflow?.status ?? 'unknown'}`
 }
 
@@ -68,67 +91,144 @@ function overallHealthType(result: CozeHealthResult) {
 const meta = reactive({
   hasApiToken: false,
   apiTokenMasked: '',
-  configured: false,
+  cozeConfigured: false,
+  deepseekConfigured: false,
+  activeConfigured: false,
+  activeProvider: 'coze' as AiProvider,
+  hasDeepseekApiKey: false,
+  deepseekApiKeyMasked: '',
   updateTime: ''
 })
 
 const form = reactive({
+  aiProvider: 'coze' as AiProvider,
   apiToken: '',
   botId: '',
   apiUrl: 'https://api.coze.cn/v3',
   workflowId: '',
   welcomeMessage: '',
+  deepseekApiKey: '',
+  deepseekApiUrl: 'https://api.deepseek.com',
+  deepseekModel: 'deepseek-v4-flash',
   enabled: true
+})
+
+const providerLabel = computed(() => {
+  return providerOptions.find((item) => item.value === form.aiProvider)?.label ?? form.aiProvider
+})
+
+const statusTitle = computed(() => {
+  if (!form.enabled) return 'AI 功能已关闭'
+  if (meta.activeConfigured) {
+    return `${providerLabel.value} 已启用`
+  }
+  return '演示模式（当前引擎未配置）'
+})
+
+const statusDesc = computed(() => {
+  if (!form.enabled) return '关闭后 AI 客服与智能排产将回退为本地演示逻辑。'
+  if (meta.activeConfigured) {
+    return `当前生效引擎：${meta.activeProvider === 'coze' ? 'Coze' : 'DeepSeek'}；最近更新：${meta.updateTime || '刚刚'}`
+  }
+  return '请配置所选 AI 引擎的凭证后保存，再进行连通性测试。'
 })
 
 async function loadConfig() {
   loading.value = true
   try {
     const data: CozeConfig = await getCozeConfig()
+    form.aiProvider = data.aiProvider ?? 'coze'
     form.botId = data.botId ?? ''
     form.apiUrl = data.apiUrl || 'https://api.coze.cn/v3'
     form.workflowId = data.workflowId ?? ''
     form.welcomeMessage = data.welcomeMessage ?? ''
+    form.deepseekApiUrl = data.deepseekApiUrl || 'https://api.deepseek.com'
+    const loadedModel = data.deepseekModel?.trim()
+    if (!loadedModel || loadedModel === 'deepseek-chat' || !deepseekModelOptions.some((item) => item.value === loadedModel)) {
+      form.deepseekModel = 'deepseek-v4-flash'
+    } else {
+      form.deepseekModel = loadedModel
+    }
     form.enabled = data.enabled ?? true
     form.apiToken = ''
+    form.deepseekApiKey = ''
     tokenEditing.value = false
+    deepseekKeyEditing.value = false
 
     meta.hasApiToken = Boolean(data.hasApiToken)
     meta.apiTokenMasked = data.apiTokenMasked ?? ''
-    meta.configured = Boolean(data.configured)
+    meta.cozeConfigured = Boolean(data.cozeConfigured ?? data.configured)
+    meta.deepseekConfigured = Boolean(data.deepseekConfigured)
+    meta.activeConfigured = Boolean(data.activeConfigured)
+    meta.activeProvider = data.activeProvider ?? form.aiProvider
+    meta.hasDeepseekApiKey = Boolean(data.hasDeepseekApiKey)
+    meta.deepseekApiKeyMasked = data.deepseekApiKeyMasked ?? ''
     meta.updateTime = data.updateTime ? String(data.updateTime) : ''
   } catch {
-    ElMessage.error('加载 Coze 配置失败')
+    ElMessage.error('加载系统配置失败')
   } finally {
     loading.value = false
   }
 }
 
+function validateBeforeSave() {
+  if (form.aiProvider === 'coze') {
+    if (!form.botId.trim()) {
+      ElMessage.warning('请填写 Coze Bot ID')
+      return false
+    }
+    if (!form.apiUrl.trim()) {
+      ElMessage.warning('请填写 Coze API 地址')
+      return false
+    }
+    if (!meta.hasApiToken && !form.apiToken.trim()) {
+      ElMessage.warning('请填写 Coze API Token')
+      return false
+    }
+    return true
+  }
+  if (form.aiProvider === 'deepseek') {
+    if (!form.deepseekApiUrl.trim()) {
+      ElMessage.warning('请填写 DeepSeek API 地址')
+      return false
+    }
+    if (!form.deepseekModel.trim()) {
+      ElMessage.warning('请填写 DeepSeek 模型名称')
+      return false
+    }
+    if (!meta.hasDeepseekApiKey && !form.deepseekApiKey.trim()) {
+      ElMessage.warning('请填写 DeepSeek API Key')
+      return false
+    }
+    return true
+  }
+  const hasCoze = meta.hasApiToken || form.apiToken.trim()
+  const hasDeepSeek = meta.hasDeepseekApiKey || form.deepseekApiKey.trim()
+  if (!hasCoze && !hasDeepSeek) {
+    ElMessage.warning('自动模式下请至少配置 Coze 或 DeepSeek 其中一套凭证')
+    return false
+  }
+  return true
+}
+
 async function handleSave() {
-  if (!form.botId.trim()) {
-    ElMessage.warning('请填写 Bot ID')
-    return
-  }
-  if (!form.apiUrl.trim()) {
-    ElMessage.warning('请填写 API 地址')
-    return
-  }
-  if (!meta.hasApiToken && !form.apiToken.trim()) {
-    ElMessage.warning('请填写 API Token')
-    return
-  }
+  if (!validateBeforeSave()) return
 
   saving.value = true
   try {
     await saveCozeConfig({
+      aiProvider: form.aiProvider,
       apiToken: form.apiToken.trim() || undefined,
-      botId: form.botId.trim(),
-      apiUrl: form.apiUrl.trim(),
+      botId: form.botId.trim() || undefined,
+      apiUrl: form.apiUrl.trim() || undefined,
       workflowId: form.workflowId.trim() || undefined,
       welcomeMessage: form.welcomeMessage.trim() || undefined,
+      deepseekApiKey: form.deepseekApiKey.trim() || undefined,
+      deepseekApiUrl: form.deepseekApiUrl.trim() || undefined,
+      deepseekModel: form.deepseekModel.trim() || undefined,
       enabled: form.enabled
     })
-    ElMessage.success('Coze 配置已保存')
+    ElMessage.success('系统配置已保存')
     healthResult.value = null
     await loadConfig()
     await Promise.all([chatStore.loadWelcomeMessage(), aiChatStore.loadWelcomeMessage()])
@@ -139,62 +239,70 @@ async function handleSave() {
   }
 }
 
+async function runHealthTask(
+  label: string,
+  task: () => Promise<CozeHealthCheckItem>,
+  slot: 'chat' | 'workflow'
+) {
+  try {
+    const result = await task()
+    if (healthResult.value) {
+      healthResult.value[slot] = result
+      healthResult.value.message = buildHealthMessage(form.aiProvider, healthResult.value.chat, healthResult.value.workflow)
+    }
+    return result
+  } catch (error) {
+    console.error(`[AI Config] ${label} 测试失败`, error)
+    const failed = createFailedHealthItem(`${label}失败：${formatTestError(error)}`)
+    if (healthResult.value) {
+      healthResult.value[slot] = failed
+      healthResult.value.message = buildHealthMessage(form.aiProvider, healthResult.value.chat, healthResult.value.workflow)
+    }
+    return failed
+  }
+}
+
+function resolveTestProvider(): AiProvider {
+  if (form.aiProvider === 'deepseek' || form.aiProvider === 'coze') {
+    return form.aiProvider
+  }
+  return meta.activeProvider === 'deepseek' ? 'deepseek' : 'coze'
+}
+
 async function handleTest() {
   testing.value = true
+  const testProvider = resolveTestProvider()
+  const isDeepSeek = testProvider === 'deepseek'
+  const chatPendingLabel = isDeepSeek ? 'DeepSeek 对话测试中…' : 'Bot 对话测试中…'
+  const workflowPendingLabel = isDeepSeek
+    ? 'DeepSeek 排产测试中，约需 10～60 秒…'
+    : '排产工作流测试中，约需 30～90 秒…'
+
   healthResult.value = {
-    configured: meta.configured,
+    provider: testProvider,
+    configured: meta.activeConfigured,
     enabled: form.enabled,
-    apiUrl: form.apiUrl,
+    apiUrl: isDeepSeek ? form.deepseekApiUrl : form.apiUrl,
     status: 'partial',
     message: '测试进行中…',
-    chat: { status: 'pending', message: 'Bot 对话测试中…' },
-    workflow: { status: 'pending', message: '排产工作流测试中，约需 30～90 秒…' }
+    chat: { status: 'pending', message: chatPendingLabel },
+    workflow: { status: 'pending', message: workflowPendingLabel }
   }
 
-  const chatTask: Promise<CozeHealthCheckItem> = testCozeChatHealth()
-    .then((chat) => {
-      if (healthResult.value) {
-        healthResult.value.chat = chat
-        healthResult.value.message = buildHealthMessage(chat, healthResult.value.workflow)
-      }
-      return chat
-    })
-    .catch((error) => {
-      console.error('[Coze] Bot 测试失败', error)
-      const failed = createFailedHealthItem(`Bot 对话测试失败：${formatTestError(error)}`)
-      if (healthResult.value) {
-        healthResult.value.chat = failed
-        healthResult.value.message = buildHealthMessage(failed, healthResult.value.workflow)
-      }
-      return failed
-    })
-
-  const workflowTask: Promise<CozeHealthCheckItem> = testCozeWorkflowHealth()
-    .then((workflow) => {
-      if (healthResult.value) {
-        healthResult.value.workflow = workflow
-        healthResult.value.message = buildHealthMessage(healthResult.value.chat, workflow)
-      }
-      return workflow
-    })
-    .catch((error) => {
-      console.error('[Coze] 工作流测试失败', error)
-      const failed = createFailedHealthItem(`排产工作流测试失败：${formatTestError(error)}`)
-      if (healthResult.value) {
-        healthResult.value.workflow = failed
-        healthResult.value.message = buildHealthMessage(healthResult.value.chat, failed)
-      }
-      return failed
-    })
+  const chatTask = isDeepSeek ? () => testDeepSeekChatHealth() : () => testCozeChatHealth()
+  const workflowTask = isDeepSeek ? () => testDeepSeekSchedulingHealth() : () => testCozeWorkflowHealth()
 
   try {
-    const [chat, workflow] = await Promise.all([chatTask, workflowTask])
+    const [chat, workflow] = await Promise.all([
+      runHealthTask(isDeepSeek ? 'DeepSeek 对话' : 'Bot 对话', chatTask, 'chat'),
+      runHealthTask(isDeepSeek ? 'DeepSeek 排产' : '排产工作流', workflowTask, 'workflow')
+    ])
     if (!healthResult.value) return
     healthResult.value.status = resolveOverallStatus(chat, workflow)
-    healthResult.value.message = buildHealthMessage(chat, workflow)
+    healthResult.value.message = buildHealthMessage(testProvider, chat, workflow)
 
     if (healthResult.value.status === 'ok') {
-      ElMessage.success('Bot 与工作流检测均通过')
+      ElMessage.success('连通性测试全部通过')
     } else if (chat?.status === 'ok' || workflow?.status === 'ok') {
       ElMessage.warning('部分测试通过，请查看下方详细结果')
     } else {
@@ -216,6 +324,17 @@ function onTokenBlur() {
   }
 }
 
+function startDeepSeekKeyEdit() {
+  deepseekKeyEditing.value = true
+  form.deepseekApiKey = ''
+}
+
+function onDeepSeekKeyBlur() {
+  if (meta.hasDeepseekApiKey && !form.deepseekApiKey.trim()) {
+    deepseekKeyEditing.value = false
+  }
+}
+
 function workflowResultDescription(workflow: NonNullable<CozeHealthResult['workflow']>) {
   const parts = [workflow.message]
   if (workflow.summary) {
@@ -226,29 +345,36 @@ function workflowResultDescription(workflow: NonNullable<CozeHealthResult['workf
   return parts.join('；')
 }
 
+function chatResultTitle(chat: NonNullable<CozeHealthResult['chat']>) {
+  const label = (healthResult.value?.provider ?? resolveTestProvider()) === 'deepseek' ? 'DeepSeek 对话' : 'Bot 对话'
+  const statusText = chat.status === 'ok' ? '成功' : chat.status === 'pending' ? '测试中' : chat.status === 'skipped' ? '跳过' : '失败'
+  return `${label}：${statusText}`
+}
+
+function workflowResultTitle(workflow: NonNullable<CozeHealthResult['workflow']>) {
+  const label = (healthResult.value?.provider ?? resolveTestProvider()) === 'deepseek' ? 'DeepSeek 排产' : '排产工作流'
+  const statusText = workflow.status === 'ok' ? '成功' : workflow.status === 'pending' ? '测试中' : workflow.status === 'skipped' ? '跳过' : '失败'
+  return `${label}：${statusText}`
+}
+
 onMounted(loadConfig)
 </script>
 
 <template>
   <div class="view-page" v-loading="loading">
-    <PageHeader title="系统配置" subtitle="管理系统对接 Coze Bot 及相关工作流设置。" />
+    <PageHeader title="系统配置" subtitle="管理 AI 引擎切换，以及 Coze 智能体 / DeepSeek 大模型对接配置。" />
     <AdminSubNav />
 
     <div class="config-container">
-      <!-- Top Connection Status Banner -->
-      <div class="status-banner" :class="meta.configured ? 'status-banner--ready' : 'status-banner--demo'">
+      <div class="status-banner" :class="meta.activeConfigured && form.enabled ? 'status-banner--ready' : 'status-banner--demo'">
         <div class="status-banner__left">
           <el-icon class="status-icon">
-            <CircleCheckFilled v-if="meta.configured" />
+            <CircleCheckFilled v-if="meta.activeConfigured && form.enabled" />
             <CircleCloseFilled v-else />
           </el-icon>
           <div class="status-info">
-            <div class="status-title">
-              {{ meta.configured ? 'Coze AI 服务已启用' : '演示模式（AI 功能未配置）' }}
-            </div>
-            <div class="status-desc">
-              {{ meta.configured ? `配置已生效，最近同步时间：${meta.updateTime || '刚刚'}` : '请输入您的 Bot ID 及 API Token 以启用智能排产与 AI 客服功能。' }}
-            </div>
+            <div class="status-title">{{ statusTitle }}</div>
+            <div class="status-desc">{{ statusDesc }}</div>
           </div>
         </div>
         <div class="status-banner__right" v-if="healthResult">
@@ -258,21 +384,36 @@ onMounted(loadConfig)
         </div>
       </div>
 
-      <el-form
-        :model="form"
-        label-position="top"
-        class="custom-config-form"
-      >
-        <!-- Card 1: API 连接 -->
+      <el-form :model="form" label-position="top" class="custom-config-form">
         <el-card shadow="hover" class="section-card">
           <template #header>
             <div class="section-card-header">
-              <el-icon><Connection /></el-icon>
-              <span>API 连接配置</span>
+              <el-icon><Cpu /></el-icon>
+              <span>AI 引擎切换</span>
             </div>
           </template>
 
-          <el-form-item label="API Token (Access Token)" required>
+          <el-form-item label="当前使用的 AI 引擎">
+            <el-radio-group v-model="form.aiProvider" class="provider-group">
+              <el-radio v-for="item in providerOptions" :key="item.value" :value="item.value" border>
+                <div class="provider-option">
+                  <span class="provider-option__label">{{ item.label }}</span>
+                  <span class="provider-option__desc">{{ item.desc }}</span>
+                </div>
+              </el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </el-card>
+
+        <el-card v-show="form.aiProvider !== 'deepseek'" shadow="hover" class="section-card">
+          <template #header>
+            <div class="section-card-header">
+              <el-icon><Connection /></el-icon>
+              <span>Coze 智能体配置</span>
+            </div>
+          </template>
+
+          <el-form-item label="API Token (Access Token)">
             <div class="token-field">
               <el-input
                 v-if="meta.hasApiToken && !tokenEditing"
@@ -292,7 +433,7 @@ onMounted(loadConfig)
                 show-password
                 clearable
                 autocomplete="new-password"
-                :placeholder="meta.hasApiToken ? '请输入新 Access Token' : '请输入 Coze 个人访问令牌 (Personal Access Token)'"
+                :placeholder="meta.hasApiToken ? '请输入新 Access Token' : '请输入 Coze 个人访问令牌'"
                 class="custom-input"
                 @blur="onTokenBlur"
               />
@@ -300,51 +441,95 @@ onMounted(loadConfig)
           </el-form-item>
 
           <div class="form-grid-2">
-            <el-form-item label="Bot ID" required>
-              <el-input
-                v-model="form.botId"
-                placeholder="请输入对接的 Coze Bot ID"
-                clearable
-                class="custom-input"
-              />
+            <el-form-item label="Bot ID">
+              <el-input v-model="form.botId" placeholder="Coze Bot ID" clearable class="custom-input" />
             </el-form-item>
-            <el-form-item label="API 服务地址" required>
+            <el-form-item label="API 服务地址">
+              <el-input v-model="form.apiUrl" placeholder="https://api.coze.cn/v3" clearable class="custom-input" />
+            </el-form-item>
+          </div>
+
+          <el-form-item label="智能排产工作流 ID">
+            <el-input
+              v-model="form.workflowId"
+              placeholder="Coze 模式下填写 Workflow ID；DeepSeek 模式可留空"
+              clearable
+              class="custom-input"
+            />
+          </el-form-item>
+        </el-card>
+
+        <el-card v-show="form.aiProvider !== 'coze'" shadow="hover" class="section-card">
+          <template #header>
+            <div class="section-card-header">
+              <el-icon><Connection /></el-icon>
+              <span>DeepSeek 大模型配置</span>
+            </div>
+          </template>
+
+          <el-form-item label="API Key">
+            <div class="token-field">
               <el-input
-                v-model="form.apiUrl"
-                placeholder="https://api.coze.cn/v3"
+                v-if="meta.hasDeepseekApiKey && !deepseekKeyEditing"
+                :model-value="meta.deepseekApiKeyMasked"
+                readonly
+                class="custom-input custom-input--token-saved"
+                @focus="startDeepSeekKeyEdit"
+              >
+                <template #suffix>
+                  <el-button link class="token-change-btn" @click="startDeepSeekKeyEdit">更换 Key</el-button>
+                </template>
+              </el-input>
+              <el-input
+                v-else
+                v-model="form.deepseekApiKey"
+                type="password"
+                show-password
                 clearable
+                autocomplete="new-password"
+                :placeholder="meta.hasDeepseekApiKey ? '请输入新 DeepSeek API Key' : '请输入 DeepSeek API Key'"
                 class="custom-input"
+                @blur="onDeepSeekKeyBlur"
               />
+            </div>
+          </el-form-item>
+
+          <div class="form-grid-2">
+            <el-form-item label="API 服务地址">
+              <el-input v-model="form.deepseekApiUrl" placeholder="https://api.deepseek.com" clearable class="custom-input" />
+            </el-form-item>
+            <el-form-item label="模型名称">
+              <el-select v-model="form.deepseekModel" placeholder="请选择模型" class="custom-input" style="width: 100%;">
+                <el-option
+                  v-for="opt in deepseekModelOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                >
+                  <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <span style="font-weight: 500;">{{ opt.label }}</span>
+                    <span style="font-size: 12px; color: #94a3b8; margin-left: 12px;">{{ opt.desc }}</span>
+                  </div>
+                </el-option>
+              </el-select>
             </el-form-item>
           </div>
         </el-card>
 
-        <!-- Card 2: 业务配置 -->
         <el-card shadow="hover" class="section-card">
           <template #header>
             <div class="section-card-header">
               <el-icon><Setting /></el-icon>
-              <span>业务对接与 AI 设置</span>
+              <span>通用 AI 设置</span>
             </div>
           </template>
-
-          <div class="form-grid-2">
-            <el-form-item label="智能排产工作流 ID">
-              <el-input
-                v-model="form.workflowId"
-                placeholder="填写后，AI 排产模块将调用该 Coze 工作流进行运算"
-                clearable
-                class="custom-input"
-              />
-            </el-form-item>
-          </div>
 
           <el-form-item label="智能助理欢迎语">
             <el-input
               v-model="form.welcomeMessage"
               type="textarea"
               :rows="3"
-              placeholder="请输入用户首次打开 AI 助手聊天面板时展示的问候欢迎语..."
+              placeholder="用户首次打开 AI 助手时展示的问候语..."
               class="custom-textarea"
             />
           </el-form-item>
@@ -352,25 +537,25 @@ onMounted(loadConfig)
           <div class="switch-row-card">
             <div class="switch-row-card__info">
               <span class="switch-row-card__title">启用 AI 增强功能</span>
-              <span class="switch-row-card__desc">关闭后系统中的 AI 排产和智能客服助手将回退为演示/本地常规逻辑。</span>
+              <span class="switch-row-card__desc">关闭后 AI 客服与智能排产回退为本地演示逻辑。</span>
             </div>
             <el-switch v-model="form.enabled" class="custom-switch" />
           </div>
         </el-card>
 
-        <!-- Form Actions -->
         <div class="form-actions-row">
           <el-button type="primary" :loading="saving" class="btn-submit" @click="handleSave">
             保存配置
           </el-button>
           <el-button :loading="testing" class="btn-test" @click="handleTest">
-            测试 Bot / 工作流
+            {{ resolveTestProvider() === 'deepseek' ? '测试 DeepSeek 对话 / 排产' : '测试 Coze Bot / 工作流' }}
           </el-button>
-          <span v-if="testing" class="test-hint">Bot 约 10 秒内出结果，工作流约 30～90 秒；两项并行测试中…</span>
+          <span v-if="testing" class="test-hint">
+            {{ resolveTestProvider() === 'deepseek' ? 'DeepSeek 对话与排产并行测试中…' : 'Bot 约 10 秒内出结果，工作流约 30～90 秒…' }}
+          </span>
         </div>
       </el-form>
 
-      <!-- Testing alert results -->
       <div v-if="healthResult" class="health-result-panel">
         <el-alert
           :type="overallHealthType(healthResult)"
@@ -382,7 +567,7 @@ onMounted(loadConfig)
         <el-alert
           v-if="healthResult.chat"
           :type="healthItemType(healthResult.chat.status)"
-          :title="`Bot 对话：${healthResult.chat.status === 'ok' ? '成功' : healthResult.chat.status === 'pending' ? '测试中' : healthResult.chat.status === 'skipped' ? '跳过' : '失败'}`"
+          :title="chatResultTitle(healthResult.chat)"
           :description="healthResult.chat.message"
           show-icon
           :closable="false"
@@ -391,7 +576,7 @@ onMounted(loadConfig)
         <el-alert
           v-if="healthResult.workflow"
           :type="healthItemType(healthResult.workflow.status)"
-          :title="`排产工作流：${healthResult.workflow.status === 'ok' ? '成功' : healthResult.workflow.status === 'pending' ? '测试中' : healthResult.workflow.status === 'skipped' ? '跳过' : '失败'}`"
+          :title="workflowResultTitle(healthResult.workflow)"
           :description="workflowResultDescription(healthResult.workflow)"
           show-icon
           :closable="false"
@@ -417,7 +602,6 @@ onMounted(loadConfig)
   gap: 20px;
 }
 
-/* Status Banner Styles */
 .status-banner {
   display: flex;
   align-items: center;
@@ -478,7 +662,6 @@ onMounted(loadConfig)
   font-weight: 600;
 }
 
-/* Form Styles */
 .custom-config-form {
   display: flex;
   flex-direction: column;
@@ -512,6 +695,53 @@ onMounted(loadConfig)
   font-size: 13px;
 }
 
+.provider-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+}
+
+.provider-group :deep(.el-radio) {
+  height: auto;
+  margin-right: 0;
+  padding: 12px 18px;
+  align-items: flex-start;
+  border-radius: 12px !important;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0 !important;
+  transition: all 0.25s ease !important;
+}
+
+.provider-group :deep(.el-radio:hover) {
+  border-color: #c7d2fe !important;
+  background-color: #f1f5f9;
+}
+
+.provider-group :deep(.el-radio.is-checked) {
+  background-color: rgba(79, 70, 229, 0.04) !important;
+  border-color: #4f46e5 !important;
+  box-shadow: 0 0 0 1px #4f46e5 !important;
+}
+
+.provider-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  white-space: normal;
+}
+
+.provider-option__label {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.provider-option__desc {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
 .form-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -519,10 +749,11 @@ onMounted(loadConfig)
   width: 100%;
 }
 
-/* Styled Inputs */
-.custom-input :deep(.el-input__wrapper) {
+.custom-input :deep(.el-input__wrapper),
+.custom-input :deep(.el-select__wrapper) {
   border-radius: 20px !important;
   padding: 6px 18px !important;
+  min-height: 40px !important;
   box-shadow: 0 0 0 1px #e2e8f0 inset !important;
   background-color: #f8fafc !important;
   transition: all 0.3s ease !important;
@@ -537,12 +768,14 @@ onMounted(loadConfig)
 }
 
 .custom-input :deep(.el-input__wrapper.is-focus),
+.custom-input :deep(.el-select__wrapper.is-focused),
 .custom-textarea :deep(.el-textarea__inner:focus) {
   background-color: #fff !important;
   box-shadow: 0 0 0 1px #4f46e5 inset, 0 0 0 3px rgba(79, 70, 229, 0.15) !important;
 }
 
-.custom-input :deep(.el-input__inner) {
+.custom-input :deep(.el-input__inner),
+.custom-input :deep(.el-select__selected-item) {
   font-size: 13px;
 }
 
@@ -556,7 +789,6 @@ onMounted(loadConfig)
   color: #4f46e5 !important;
 }
 
-/* Switch card styles */
 .switch-row-card {
   display: flex;
   justify-content: space-between;
@@ -585,12 +817,12 @@ onMounted(loadConfig)
   color: #64748b;
 }
 
-/* Actions Row */
 .form-actions-row {
   display: flex;
   align-items: center;
   gap: 12px;
   padding-top: 8px;
+  flex-wrap: wrap;
 }
 
 .btn-submit {
@@ -602,12 +834,6 @@ onMounted(loadConfig)
   box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2) !important;
   font-weight: 600;
   font-size: 14px !important;
-  transition: all 0.2s ease !important;
-}
-
-.btn-submit:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.3) !important;
 }
 
 .btn-test {
@@ -617,12 +843,6 @@ onMounted(loadConfig)
   border: 1px solid #e2e8f0 !important;
   font-weight: 600;
   font-size: 14px !important;
-  transition: all 0.2s ease !important;
-}
-
-.btn-test:hover {
-  background-color: #f8fafc !important;
-  border-color: #cbd5e1 !important;
 }
 
 .test-hint {
@@ -639,5 +859,10 @@ onMounted(loadConfig)
 .health-result-alert {
   border-radius: 12px !important;
 }
-</style>
 
+@media (max-width: 960px) {
+  .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

@@ -8,6 +8,8 @@ import com.aimes.entity.SysUser;
 import com.aimes.mapper.AiChatLogMapper;
 import com.aimes.service.AuthService;
 import com.aimes.service.CozeConfigService;
+import com.aimes.service.ai.AiProviderType;
+import com.aimes.service.ai.DeepSeekEngineService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,9 +41,13 @@ public class CozeChatService {
     private final CozeConfigService cozeConfigService;
     private final CozeApiClient cozeApiClient;
     private final CozeChatPromptService cozeChatPromptService;
+    private final DeepSeekEngineService deepSeekEngineService;
     private final ObjectMapper objectMapper;
 
     public Map<String, Object> chat(CozeChatRequest request) {
+        if (cozeConfigService.resolveActiveProvider() == AiProviderType.DEEPSEEK) {
+            return deepSeekEngineService.chat(request);
+        }
         SysUser user = authService.currentUser();
         String sessionId = StringUtils.hasText(request.getSessionId()) ? request.getSessionId() : UUID.randomUUID().toString();
         List<AiChatLog> sessionHistory = loadSessionHistory(user.getId(), sessionId);
@@ -93,6 +99,10 @@ public class CozeChatService {
     }
 
     public void chatStream(CozeChatRequest request, HttpServletResponse response) {
+        if (cozeConfigService.resolveActiveProvider() == AiProviderType.DEEPSEEK) {
+            deepSeekEngineService.chatStream(request, response);
+            return;
+        }
         SysUser user = authService.currentUser();
         String sessionId = StringUtils.hasText(request.getSessionId()) ? request.getSessionId() : UUID.randomUUID().toString();
         List<AiChatLog> sessionHistory = loadSessionHistory(user.getId(), sessionId);
@@ -122,8 +132,21 @@ public class CozeChatService {
         StringBuilder replyBuilder = new StringBuilder();
         try {
             invokeLiveChatStream(user, sessionId, prompt, promptMode, writer, replyBuilder);
-            saveChatLog(user.getId(), sessionId, request.getMessage(), replyBuilder.toString());
+            String finalReply = replyBuilder.toString();
+            if (!StringUtils.hasText(finalReply)) {
+                finalReply = cozeChatPromptService.buildMockReply(request.getMessage(), referencedOrders, user);
+                if (StringUtils.hasText(finalReply)) {
+                    streamAnswerContent(writer, finalReply);
+                }
+            }
+            saveChatLog(user.getId(), sessionId, request.getMessage(), StringUtils.hasText(finalReply) ? finalReply : "");
         } catch (Exception ex) {
+            String mockReply = cozeChatPromptService.buildMockReply(request.getMessage(), referencedOrders, user);
+            if (StringUtils.hasText(mockReply)) {
+                streamAnswerContent(writer, mockReply);
+                saveChatLog(user.getId(), sessionId, request.getMessage(), mockReply);
+                return;
+            }
             String detail = ex.getMessage() == null ? "" : ex.getMessage();
             String errorMsg;
             if (detail.contains("timeout")) {
@@ -132,7 +155,6 @@ public class CozeChatService {
                 errorMsg = "Coze 对话失败：" + detail;
             }
             try {
-                // Send error event
                 writer.write("event: error\n");
                 writer.write("data: " + objectMapper.writeValueAsString(Map.of("message", errorMsg)) + "\n\n");
                 writer.flush();
@@ -214,47 +236,52 @@ public class CozeChatService {
             writer.flush();
         } catch (Exception ignored) {}
 
-        if (reply != null) {
-            String msgId = "mock-msg-" + UUID.randomUUID().toString();
-            int chunkSize = 2;
-            for (int i = 0; i < reply.length(); i += chunkSize) {
-                int end = Math.min(i + chunkSize, reply.length());
-                String chunk = reply.substring(i, end);
-                
-                Map<String, Object> delta = Map.of(
-                        "id", msgId,
-                        "role", "assistant",
-                        "type", "answer",
-                        "content", chunk,
-                        "content_type", "text"
-                );
-                
-                try {
-                    writer.write("event: conversation.message.delta\n");
-                    writer.write("data: " + objectMapper.writeValueAsString(delta) + "\n\n");
-                    writer.flush();
-                    Thread.sleep(40);
-                } catch (Exception e) {
-                    break;
-                }
-            }
-            
-            Map<String, Object> completed = Map.of(
+        streamAnswerContent(writer, reply);
+    }
+
+    private void streamAnswerContent(PrintWriter writer, String reply) {
+        if (!StringUtils.hasText(reply)) {
+            return;
+        }
+        String msgId = "mock-msg-" + UUID.randomUUID().toString();
+        int chunkSize = 2;
+        for (int i = 0; i < reply.length(); i += chunkSize) {
+            int end = Math.min(i + chunkSize, reply.length());
+            String chunk = reply.substring(i, end);
+
+            Map<String, Object> delta = Map.of(
                     "id", msgId,
                     "role", "assistant",
                     "type", "answer",
-                    "content", reply,
+                    "content", chunk,
                     "content_type", "text"
             );
+
             try {
-                writer.write("event: conversation.message.completed\n");
-                writer.write("data: " + objectMapper.writeValueAsString(completed) + "\n\n");
-                
-                writer.write("event: conversation.chat.completed\n");
-                writer.write("data: {}\n\n");
+                writer.write("event: conversation.message.delta\n");
+                writer.write("data: " + objectMapper.writeValueAsString(delta) + "\n\n");
                 writer.flush();
-            } catch (Exception ignored) {}
+                Thread.sleep(40);
+            } catch (Exception e) {
+                break;
+            }
         }
+
+        Map<String, Object> completed = Map.of(
+                "id", msgId,
+                "role", "assistant",
+                "type", "answer",
+                "content", reply,
+                "content_type", "text"
+        );
+        try {
+            writer.write("event: conversation.message.completed\n");
+            writer.write("data: " + objectMapper.writeValueAsString(completed) + "\n\n");
+
+            writer.write("event: conversation.chat.completed\n");
+            writer.write("data: {}\n\n");
+            writer.flush();
+        } catch (Exception ignored) {}
     }
 
     public List<Map<String, Object>> history(String sessionId) {

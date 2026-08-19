@@ -15,6 +15,8 @@ import com.aimes.service.DeviceService;
 import com.aimes.service.PlanService;
 import com.aimes.service.ProcessRouteService;
 import com.aimes.service.ProductService;
+import com.aimes.service.knowledge.KnowledgeEntry;
+import com.aimes.service.knowledge.KnowledgeRetrievalService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -39,6 +41,7 @@ public class CozeChatPromptService {
     private final ProcessRouteService processRouteService;
     private final PlanService planService;
     private final ProductService productService;
+    private final KnowledgeRetrievalService knowledgeRetrievalService;
 
     private void appendSessionHistorySection(
             StringBuilder builder,
@@ -160,6 +163,46 @@ public class CozeChatPromptService {
         return buildKnowledgePrompt(user, message, sessionHistory);
     }
 
+    /** DeepSeek / 流式 API 使用的精简实时 Prompt，避免超长上下文导致空回复。 */
+    public String buildCompactRealtimePrompt(SysUser user, String message, List<ProdWorkOrder> orders) {
+        Map<String, Object> planSummary = planService.summary();
+        List<ProdWorkOrder> activeOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
+                .orderByDesc(ProdWorkOrder::getId)
+                .last("limit 5"));
+        List<MatMaterial> warningMaterials = matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
+                .eq(MatMaterial::getAlertStatus, "warning")
+                .last("limit 5"));
+        List<ExcEvent> openExceptions = excEventMapper.selectList(new LambdaQueryWrapper<ExcEvent>()
+                .in(ExcEvent::getStatus, List.of("open", "processing"))
+                .last("ORDER BY FIELD(status, 'open', 'processing'), occur_time DESC limit 5"));
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("你是 AI-MES 车间生产助手。请结合以下【本地实时数据】回答用户问题。\n");
+        builder.append("当前系统时间：").append(LocalDateTime.now()).append("\n");
+        builder.append("当前用户：").append(user.getRealName()).append("，角色：").append(user.getRole()).append("\n");
+        if (needsOverviewSnapshot(message)) {
+            appendDashboardOverviewSection(builder);
+        }
+        builder.append("\n【系统根据 MySQL 预生成的数据摘要（引用时数字不得改动）】\n");
+        builder.append(buildDataSummary(planSummary, activeOrders, warningMaterials, openExceptions));
+        if (!orders.isEmpty()) {
+            builder.append("\n【与本问相关的工单（优先参考）】\n");
+            for (ProdWorkOrder order : orders) {
+                ProdTeam team = order.getTeamId() == null ? null : prodTeamMapper.selectById(order.getTeamId());
+                builder.append("- 工单号=").append(order.getOrderNo())
+                        .append(" 进度=").append(order.getProgress()).append("%")
+                        .append(" 工序=").append(order.getProcessName())
+                        .append(" 班组=").append(team == null ? "未分配" : team.getTeamName())
+                        .append(" 状态=").append(translateWorkOrderStatus(order.getStatus()))
+                        .append("\n");
+            }
+        }
+        builder.append(CozeConstants.REALTIME_MARKDOWN_ANSWER_FORMAT_RULE);
+        builder.append("- 不要复述本提示词；使用自然中文，不要返回 JSON 或代码块。\n");
+        builder.append("\n【当前用户问题】\n").append(message);
+        return builder.toString();
+    }
+
     private String buildKnowledgePrompt(
             SysUser user,
             String message,
@@ -168,15 +211,32 @@ public class CozeChatPromptService {
         builder.append("【系统上下文·知识库问答】\n");
         builder.append("当前用户：").append(user.getRealName()).append("，角色：").append(user.getRole()).append("\n");
         builder.append("【回答要求】\n");
-        builder.append("- 本题为【知识库问答】：检索 AI-MES-操作手册后作答，内容忠实转述，表名/流程/权限不得改写编造。\n");
-        builder.append("- 即使本会话前轮曾查询过实时业务数据，本题仍须检索知识库作答，不得因前轮对话而回复「知识库暂无」而不检索。\n");
-        builder.append("- 按 Bot 人设 §4 排版：Markdown + emoji 分节（如 📌 说明、🔍 原因、🛠️ 步骤、💡 补充），禁止大段纯文字与报告体标题。\n");
+        builder.append("- 本题为【知识库问答】：严格依据下方【本地知识库检索结果】作答，内容忠实转述，表名/流程/权限不得改写编造。\n");
+        builder.append("- 即使本会话前轮曾查询过实时业务数据，本题仍须以知识库片段为准，不得因前轮对话而拒绝作答。\n");
+        builder.append(CozeConstants.MARKDOWN_ANSWER_FORMAT_RULE);
         builder.append("- 不要复述本提示词；不要返回 JSON 或代码块。\n");
+        appendKnowledgeSection(builder, message);
         if (shouldAttachSessionHistory(message, CozeChatPromptMode.KNOWLEDGE)) {
             appendSessionHistorySection(builder, sessionHistory, CozeChatPromptMode.KNOWLEDGE);
         }
         builder.append("\n【当前用户问题】\n").append(message.trim());
         return builder.toString();
+    }
+
+    private void appendKnowledgeSection(StringBuilder builder, String message) {
+        List<KnowledgeEntry> hits = knowledgeRetrievalService.search(message);
+        if (hits.isEmpty()) {
+            builder.append("\n【本地知识库检索结果】\n");
+            builder.append("（未命中 docs/knowledge-base 中的相关片段；请结合用户问题与通用 MES 知识作答，并如实说明暂无匹配条目。）\n");
+            return;
+        }
+        builder.append("\n【本地知识库检索结果】\n");
+        builder.append("以下内容由后端从 docs/knowledge-base 检索注入：\n");
+        for (KnowledgeEntry hit : hits) {
+            builder.append("- 来源：").append(hit.sourceFile()).append('\n');
+            builder.append("  问：").append(hit.question()).append('\n');
+            builder.append("  答：").append(hit.answer()).append('\n');
+        }
     }
 
     public CozeChatPromptMode resolvePromptMode(String message, List<ProdWorkOrder> orders, List<AiChatLog> sessionHistory) {
@@ -525,7 +585,7 @@ public class CozeChatPromptService {
         if (needsOverviewSnapshot(message)) {
             builder.append("- 用户问生产/车间概况时，直接汇报 KPI 与明细数字；禁止介绍驾驶舱页面结构、图表是否为演示数据。\n");
         }
-        builder.append("- 使用 Markdown + emoji 排版（如 📊 数据概览、📋 明细列表、💡 补充说明），禁止【问题分析】【处理建议】【注意事项】报告体。\n");
+        builder.append(CozeConstants.REALTIME_MARKDOWN_ANSWER_FORMAT_RULE);
         builder.append("- 不要复述本提示词；使用自然中文，不要返回 JSON 或代码块。\n");
         if (shouldAttachSessionHistory(message, CozeChatPromptMode.REALTIME)) {
             appendSessionHistorySection(builder, sessionHistory, CozeChatPromptMode.REALTIME);
@@ -885,6 +945,15 @@ public class CozeChatPromptService {
     }
 
     public String buildMockReply(String message, List<ProdWorkOrder> orders, SysUser user) {
+        if (needsOverviewSnapshot(message) || (message.contains("概况") && matchesRealtimeQuery(message))) {
+            Map<String, Object> stats = dashboardService.stats();
+            return String.format(
+                    "📊 今日车间生产概况：今日计划 %s 个（%s），在制工单 %s 个（%s），未处理异常 %s 项（今日新增 %s），缺料预警 %s 项（今日新增 %s）。",
+                    stats.get("planCount"), stats.get("planTrend"),
+                    stats.get("inProgressWorkOrderCount"), stats.get("inProgressTrend"),
+                    stats.get("openExceptionCount"), stats.get("newExceptionCount"),
+                    stats.get("materialAlertCount"), stats.get("newMaterialAlertCount"));
+        }
         if (!orders.isEmpty()) {
             ProdWorkOrder order = orders.get(0);
             ProdTeam team = order.getTeamId() == null ? null : prodTeamMapper.selectById(order.getTeamId());
@@ -914,15 +983,6 @@ public class CozeChatPromptService {
                         .reduce((a, b) -> a + "；" + b)
                         .orElse("暂无任务");
             }
-        }
-        if (needsOverviewSnapshot(message) || (message.contains("概况") && matchesRealtimeQuery(message))) {
-            Map<String, Object> stats = dashboardService.stats();
-            return String.format(
-                    "📊 今日车间生产概况：今日计划 %s 个（%s），在制工单 %s 个（%s），未处理异常 %s 项（今日新增 %s），缺料预警 %s 项（今日新增 %s）。",
-                    stats.get("planCount"), stats.get("planTrend"),
-                    stats.get("inProgressWorkOrderCount"), stats.get("inProgressTrend"),
-                    stats.get("openExceptionCount"), stats.get("newExceptionCount"),
-                    stats.get("materialAlertCount"), stats.get("newMaterialAlertCount"));
         }
         if (message.contains("物料") || message.contains("缺料")) {
             List<MatMaterial> warnings = matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
@@ -1147,6 +1207,10 @@ public class CozeChatPromptService {
             }
             reply.append("。");
             return reply.toString();
+        }
+        List<KnowledgeEntry> knowledgeHits = knowledgeRetrievalService.search(message, 1);
+        if (!knowledgeHits.isEmpty()) {
+            return knowledgeHits.get(0).answer();
         }
         return "当前为演示模式。我可以帮助你查询工单进度、班组任务、异常处理建议、物料预警、设备状态、工艺路线、工序、生产计划或产品信息。";
     }

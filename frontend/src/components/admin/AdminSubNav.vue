@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 const tabs = [
   { path: '/admin/users', label: '用户管理' },
   { path: '/admin/roles', label: '角色管理' },
-  { path: '/admin/coze', label: 'Coze 配置' }
+  { path: '/admin/coze', label: 'AI 配置' }
 ]
 
 const route = useRoute()

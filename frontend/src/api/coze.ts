@@ -69,44 +69,50 @@ export async function sendCozeMessageStream(
   let currentEvent = ''
   let currentData = ''
 
+  const dispatchEvent = () => {
+    if (!currentEvent && !currentData) return
+    onEvent({ event: currentEvent, data: currentData })
+    currentEvent = ''
+    currentData = ''
+  }
+
+  const processLine = (line: string) => {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      dispatchEvent()
+      return
+    }
+    if (trimmed.startsWith('event:')) {
+      currentEvent = trimmed.slice(6).trim()
+      return
+    }
+    if (trimmed.startsWith('data:')) {
+      currentData = trimmed.slice(5).trim()
+    }
+  }
+
   try {
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
+      if (value) {
+        buffer += decoder.decode(value, { stream: true })
+      }
       const lines = buffer.split('\n')
-      
-      // Keep the last partial line in buffer
-      buffer = lines.pop() || ''
+      buffer = done ? '' : (lines.pop() || '')
 
       for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed) {
-          // Empty line indicates event boundary
-          if (currentEvent || currentData) {
-            onEvent({ event: currentEvent, data: currentData })
-            currentEvent = ''
-            currentData = ''
-          }
-          continue
-        }
-
-        if (trimmed.startsWith('event:')) {
-          currentEvent = trimmed.slice(6).trim()
-        } else if (trimmed.startsWith('data:')) {
-          currentData = trimmed.slice(5).trim()
-        }
+        processLine(line)
       }
-    }
-    
-    // Process any remaining event in buffer
-    if (buffer.trim()) {
-      const line = buffer.trim()
-      if (line.startsWith('event:')) {
-        onEvent({ event: line.slice(6).trim(), data: '' })
-      } else if (line.startsWith('data:')) {
-        onEvent({ event: '', data: line.slice(5).trim() })
+
+      if (done) {
+        if (buffer) {
+          for (const line of buffer.split('\n')) {
+            processLine(line)
+          }
+          buffer = ''
+        }
+        dispatchEvent()
+        break
       }
     }
   } finally {
@@ -151,6 +157,42 @@ export function testCozeWorkflowHealth(): Promise<CozeHealthCheckItem> {
       skipErrorHandler: true
     })
     .then((res) => res.data as CozeHealthCheckItem)
+}
+
+export function testDeepSeekChatHealth(): Promise<CozeHealthCheckItem> {
+  return request
+    .get('/coze/health/deepseek/chat', {
+      timeout: 120000,
+      skipErrorHandler: true
+    })
+    .then((res) => res.data as CozeHealthCheckItem)
+}
+
+export function testDeepSeekSchedulingHealth(): Promise<CozeHealthCheckItem> {
+  return request
+    .get('/coze/health/deepseek/scheduling', {
+      timeout: 180000,
+      skipErrorHandler: true
+    })
+    .then((res) => res.data as CozeHealthCheckItem)
+}
+
+export function testCozeEngineHealth() {
+  return request
+    .get<CozeHealthResult>('/coze/health/coze', {
+      timeout: 180000,
+      skipErrorHandler: true
+    })
+    .then((res) => res.data)
+}
+
+export function testDeepSeekEngineHealth() {
+  return request
+    .get<CozeHealthResult>('/coze/health/deepseek', {
+      timeout: 180000,
+      skipErrorHandler: true
+    })
+    .then((res) => res.data)
 }
 
 export function getSchedulingContext(workOrderIds: Array<number | string>) {

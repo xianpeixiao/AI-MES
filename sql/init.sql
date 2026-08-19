@@ -645,8 +645,12 @@ CREATE TABLE sys_coze_config (
     workflow_id VARCHAR(128) NULL COMMENT '排产工作流 ID（可选）',
     welcome_message VARCHAR(500) NULL COMMENT '欢迎语',
     enabled TINYINT NOT NULL DEFAULT 1 COMMENT '1=启用 0=禁用',
+    ai_provider VARCHAR(20) NOT NULL DEFAULT 'coze' COMMENT 'AI 引擎：coze/deepseek/auto',
+    deepseek_api_key VARCHAR(512) NULL COMMENT 'DeepSeek API Key',
+    deepseek_api_url VARCHAR(255) NOT NULL DEFAULT 'https://api.deepseek.com' COMMENT 'DeepSeek API 地址',
+    deepseek_model VARCHAR(64) NOT NULL DEFAULT 'deepseek-chat' COMMENT 'DeepSeek 模型',
     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Coze 集成配置';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI 集成配置（Coze + DeepSeek）';
 
 -- 角色权限配置
 CREATE TABLE sys_role_permission (

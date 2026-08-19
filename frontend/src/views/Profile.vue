@@ -153,7 +153,7 @@
 
 <script setup lang="ts">
 
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Camera, User, Lock, Calendar, CircleCheck } from '@element-plus/icons-vue'
@@ -173,10 +173,19 @@ const profileFormRef = ref<FormInstance>()
 const passwordFormRef = ref<FormInstance>()
 const fileInputRef = ref<HTMLInputElement>()
 
-// Profile Form
 const profileForm = reactive({
   realName: profile.value?.realName || ''
 })
+
+watch(
+  () => profile.value?.realName,
+  (realName) => {
+    if (realName && !savingProfile.value) {
+      profileForm.realName = realName
+    }
+  },
+  { immediate: true }
+)
 
 const profileRules = reactive<FormRules>({
   realName: [
@@ -233,42 +242,63 @@ function triggerUpload() {
   fileInputRef.value?.click()
 }
 
-// Handle local file reading and upload
-function onFileChange(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
+function compressAvatar(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.onload = () => {
+      const image = new Image()
+      image.onload = () => {
+        const maxSize = 256
+        const scale = Math.min(1, maxSize / Math.max(image.width, image.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(image.width * scale))
+        canvas.height = Math.max(1, Math.round(image.height * scale))
+        const context = canvas.getContext('2d')
+        if (!context) {
+          reject(new Error('浏览器不支持图片压缩'))
+          return
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.82))
+      }
+      image.onerror = () => reject(new Error('图片解析失败'))
+      image.src = String(reader.result)
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+async function onFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
   if (!file) return
 
-  // Size limit: 2MB
   if (file.size > 2 * 1024 * 1024) {
     ElMessage.error('头像图片大小不能超过 2MB！')
     return
   }
-
-  // Type limit
   if (!file.type.startsWith('image/')) {
     ElMessage.error('只能上传图片文件！')
     return
   }
 
-  const reader = new FileReader()
-  reader.onload = async (event) => {
-    const base64Str = event.target?.result as string
-    savingProfile.value = true
-    try {
-      const updated = await updateUserProfile({
-        realName: profileForm.realName,
-        avatar: base64Str
-      })
-      userStore.updateProfile(updated)
-      ElMessage.success('头像上传并保存成功！')
-    } catch (err: any) {
-      console.error(err)
-      ElMessage.error(err?.response?.data?.message || '头像上传失败，请重试')
-    } finally {
-      savingProfile.value = false
-    }
+  savingProfile.value = true
+  try {
+    const avatar = await compressAvatar(file)
+    const updated = await updateUserProfile({
+      realName: profileForm.realName || profile.value?.realName || userStore.displayName,
+      avatar
+    })
+    userStore.updateProfile(updated)
+    ElMessage.success('头像上传并保存成功！')
+  } catch (err: any) {
+    console.error(err)
+    ElMessage.error(err?.response?.data?.message || err?.message || '头像上传失败，请重试')
+  } finally {
+    savingProfile.value = false
   }
-  reader.readAsDataURL(file)
 }
 
 // Update Profile realName
@@ -278,10 +308,13 @@ async function handleUpdateProfile() {
     if (!valid) return
     savingProfile.value = true
     try {
-      const updated = await updateUserProfile({
-        realName: profileForm.realName,
-        avatar: profile.value?.avatar
-      })
+      const payload: { realName: string; avatar?: string } = {
+        realName: profileForm.realName
+      }
+      if (profile.value?.avatar) {
+        payload.avatar = profile.value.avatar
+      }
+      const updated = await updateUserProfile(payload)
       userStore.updateProfile(updated)
       ElMessage.success('个人基本信息保存成功！')
     } catch (err: any) {

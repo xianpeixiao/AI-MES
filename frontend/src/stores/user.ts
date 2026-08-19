@@ -41,11 +41,32 @@ export const useUserStore = defineStore('user', () => {
   const isWorker = computed(() => role.value === 'worker')
   const displayName = computed(() => profile.value?.realName || profile.value?.nickname || profile.value?.username || '未登录')
 
-  function applyProfile(nextProfile: UserProfile) {
-    profile.value = nextProfile
-    permissions.value = nextProfile.permissions ?? []
-    fullAccess.value = Boolean(nextProfile.fullAccess)
-    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextProfile))
+  function applyProfile(nextProfile: UserProfile, mergeLocal = false) {
+    const merged: UserProfile = mergeLocal
+      ? {
+          ...nextProfile,
+          realName: nextProfile.realName || profile.value?.realName,
+          avatar: nextProfile.avatar || profile.value?.avatar
+        }
+      : nextProfile
+    profile.value = merged
+    permissions.value = merged.permissions ?? []
+    fullAccess.value = Boolean(merged.fullAccess)
+    persistProfile(merged)
+  }
+
+  function persistProfile(nextProfile: UserProfile) {
+    try {
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextProfile))
+    } catch {
+      try {
+        const rest = { ...nextProfile }
+        delete rest.avatar
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(rest))
+      } catch (error) {
+        console.warn('[Auth] 本地用户缓存写入失败', error)
+      }
+    }
   }
 
   function persistSession(payload: LoginResponse) {
@@ -102,7 +123,7 @@ export const useUserStore = defineStore('user', () => {
           clearSession()
           return
         }
-        applyProfile(currentUser)
+        applyProfile(currentUser, true)
         backendUnavailable.value = false
         initialized.value = true
         return
@@ -160,7 +181,7 @@ export const useUserStore = defineStore('user', () => {
   }
 
   function updateProfile(newProfile: UserProfile) {
-    applyProfile(newProfile)
+    applyProfile(newProfile, true)
   }
 
   return {

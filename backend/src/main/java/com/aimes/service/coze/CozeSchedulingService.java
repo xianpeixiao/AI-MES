@@ -12,11 +12,14 @@ import com.aimes.mapper.ProdTeamMapper;
 import com.aimes.mapper.ProdWorkOrderMapper;
 import com.aimes.service.CozeConfigService;
 import com.aimes.service.DeviceService;
+import com.aimes.service.ai.AiProviderType;
+import com.aimes.service.ai.DeepSeekEngineService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -39,9 +42,13 @@ public class CozeSchedulingService {
     private final CozeConfigService cozeConfigService;
     private final DeviceService deviceService;
     private final CozeApiClient cozeApiClient;
+    private final ObjectProvider<DeepSeekEngineService> deepSeekEngineService;
     private final ObjectMapper objectMapper;
 
     public Map<String, Object> scheduling(CozeSchedulingRequest request) {
+        if (cozeConfigService.resolveActiveProvider() == AiProviderType.DEEPSEEK) {
+            return deepSeekEngineService.getObject().scheduling(request);
+        }
         List<ProdWorkOrder> workOrders = request.getWorkOrderIds().stream()
                 .map(prodWorkOrderMapper::selectById)
                 .filter(java.util.Objects::nonNull)
@@ -58,13 +65,14 @@ public class CozeSchedulingService {
                     return mockSchedulingResult(workOrders, warningMaterials, constraints, planDate,
                             "未配置排产工作流 ID，请在 Coze 配置中填写");
                 }
-                Map<String, Object> parsed = finalizeSchedulingResult(
+                Map<String, Object> parsed = finalizeSchedulingResultInternal(
                         runSchedulingWorkflow(workOrders, warningMaterials, planDate, constraints),
                         workOrders,
                         constraints,
                         planDate);
                 return Map.of(
                         "mode", "live",
+                        "provider", AiProviderType.COZE.wireValue(),
                         "result", parsed,
                         "constraints", constraints
                 );
@@ -94,9 +102,10 @@ public class CozeSchedulingService {
             String message) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("mode", "mock");
+        result.put("provider", AiProviderType.COZE.wireValue());
         result.put("message", message);
         result.put("constraints", constraints);
-        result.put("result", finalizeSchedulingResult(
+        result.put("result", finalizeSchedulingResultInternal(
                 buildMockScheduling(workOrders, warningMaterials, constraints, planDate),
                 workOrders,
                 constraints,
@@ -163,19 +172,7 @@ public class CozeSchedulingService {
         }
 
         try {
-            List<ProdWorkOrder> workOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
-                    .in(ProdWorkOrder::getStatus, List.of("pending", "assigned"))
-                    .orderByAsc(ProdWorkOrder::getPriority)
-                    .last("limit 1"));
-            if (workOrders.isEmpty()) {
-                workOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
-                        .orderByDesc(ProdWorkOrder::getUpdatedTime)
-                        .last("limit 1"));
-            }
-            if (workOrders.isEmpty()) {
-                workOrders = List.of(buildSampleWorkOrder());
-            }
-
+            List<ProdWorkOrder> workOrders = loadHealthSampleWorkOrders();
             List<MatMaterial> warningMaterials = matMaterialMapper.selectList(new LambdaQueryWrapper<MatMaterial>()
                     .eq(MatMaterial::getAlertStatus, "warning")
                     .last("limit 5"));
@@ -220,6 +217,26 @@ public class CozeSchedulingService {
         if (!StringUtils.hasText(workflowId)) {
             throw new IOException("未配置排产工作流 ID");
         }
+        Map<String, Object> parameters = buildWorkflowParameters(workOrders, warningMaterials, planDate, constraints);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("workflow_id", workflowId.trim());
+        payload.put("bot_id", cozeApiClient.botId());
+        payload.put("parameters", parameters);
+        JsonNode root = cozeApiClient.invokeJson(cozeApiClient.workflowApiUrl() + "/workflow/run", payload);
+        Map<String, Object> parsed = parseWorkflowSchedulingResult(root);
+        if (parsed == null || parsed.isEmpty()) {
+            throw new IOException("工作流返回结果无法解析，请检查 Coze 结束节点是否输出 JSON（priorities / bottlenecks / dispatchSuggestions）");
+        }
+        return parsed;
+    }
+
+    /** 与 Coze Workflow 开始节点入参一致，供 DeepSeek 排产复用。 */
+    public Map<String, Object> buildWorkflowParameters(
+            List<ProdWorkOrder> workOrders,
+            List<MatMaterial> warningMaterials,
+            LocalDate planDate,
+            Map<String, Boolean> constraints) throws IOException {
         Map<String, Object> parameters = new LinkedHashMap<>();
         parameters.put("plan_date", String.valueOf(planDate));
         parameters.put("work_orders_json", objectMapper.writeValueAsString(buildSchedulingWorkOrderViews(workOrders)));
@@ -240,17 +257,37 @@ public class CozeSchedulingService {
             parameters.put("devices_json", "[]");
         }
         parameters.put("current_time", LocalDateTime.now().format(CozeConstants.SCHEDULING_TIME_FORMAT));
+        return parameters;
+    }
 
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("workflow_id", workflowId.trim());
-        payload.put("bot_id", cozeApiClient.botId());
-        payload.put("parameters", parameters);
-        JsonNode root = cozeApiClient.invokeJson(cozeApiClient.workflowApiUrl() + "/workflow/run", payload);
-        Map<String, Object> parsed = parseWorkflowSchedulingResult(root);
+    /** 解析 Coze / DeepSeek 排产 JSON 文本，字段与 Workflow 结束节点一致。 */
+    public Map<String, Object> parseSchedulingResponseText(String raw) throws IOException {
+        if (!StringUtils.hasText(raw)) {
+            throw new IOException("排产结果为空");
+        }
+        String json = cozeApiClient.stripMarkdownJson(raw.trim());
+        JsonNode node = objectMapper.readTree(json);
+        Map<String, Object> parsed = extractSchedulingPayload(node);
         if (parsed == null || parsed.isEmpty()) {
-            throw new IOException("工作流返回结果无法解析，请检查 Coze 结束节点是否输出 JSON（priorities / bottlenecks / dispatchSuggestions）");
+            throw new IOException("排产结果无法解析，请确认包含 priorities / bottlenecks / dispatchSuggestions 或 dispatches");
         }
         return parsed;
+    }
+
+    public List<ProdWorkOrder> loadHealthSampleWorkOrders() {
+        List<ProdWorkOrder> workOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
+                .in(ProdWorkOrder::getStatus, List.of("pending", "assigned"))
+                .orderByAsc(ProdWorkOrder::getPriority)
+                .last("limit 1"));
+        if (workOrders.isEmpty()) {
+            workOrders = prodWorkOrderMapper.selectList(new LambdaQueryWrapper<ProdWorkOrder>()
+                    .orderByDesc(ProdWorkOrder::getUpdatedTime)
+                    .last("limit 1"));
+        }
+        if (workOrders.isEmpty()) {
+            workOrders = List.of(buildSampleWorkOrder());
+        }
+        return workOrders;
     }
 
     private List<Map<String, Object>> buildSchedulingWorkOrderViews(List<ProdWorkOrder> workOrders) {
@@ -279,7 +316,23 @@ public class CozeSchedulingService {
         return assignedTeams;
     }
 
-    private Map<String, Object> finalizeSchedulingResult(
+    public Map<String, Object> finalizeSchedulingResult(
+            Map<String, Object> parsed,
+            List<ProdWorkOrder> workOrders,
+            Map<String, Boolean> constraints,
+            LocalDate planDate) {
+        return finalizeSchedulingResultInternal(parsed, workOrders, constraints, planDate);
+    }
+
+    public Map<String, Object> buildMockSchedulingPublic(
+            List<ProdWorkOrder> workOrders,
+            List<MatMaterial> warningMaterials,
+            Map<String, Boolean> constraints,
+            LocalDate planDate) {
+        return buildMockScheduling(workOrders, warningMaterials, constraints, planDate);
+    }
+
+    private Map<String, Object> finalizeSchedulingResultInternal(
             Map<String, Object> parsed,
             List<ProdWorkOrder> workOrders,
             Map<String, Boolean> constraints,
@@ -902,7 +955,7 @@ public class CozeSchedulingService {
         return text + "（未考虑班组工时）";
     }
 
-    private Map<String, Object> summarizeSchedulingResult(Map<String, Object> parsed) {
+    public Map<String, Object> summarizeSchedulingResult(Map<String, Object> parsed) {
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("priorities", listSize(parsed.get("priorities")));
         summary.put("bottlenecks", listSize(parsed.get("bottlenecks")));

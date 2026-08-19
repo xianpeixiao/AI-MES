@@ -19,5 +19,10 @@ public class SysCozeConfig {
     private String workflowId;
     private String welcomeMessage;
     private Integer enabled;
+    /** coze | deepseek | auto */
+    private String aiProvider;
+    private String deepseekApiKey;
+    private String deepseekApiUrl;
+    private String deepseekModel;
     private LocalDateTime updateTime;
 }

@@ -77,6 +77,7 @@ interface SchedulingSnapshot {
   activePreset: string
   result: SchedulingResult | null
   resultMode: 'live' | 'mock' | ''
+  resultProvider: 'coze' | 'deepseek' | ''
   resultHint: string
   resultSummary: string
   appliedConstraints: {
@@ -137,6 +138,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
   const form = reactive<SchedulingForm>(createDefaultForm())
   const result = ref<SchedulingResult | null>(null)
   const resultMode = ref<'live' | 'mock' | ''>('')
+  const resultProvider = ref<'coze' | 'deepseek' | ''>('')
   const resultHint = ref('')
   const resultSummary = ref('')
   const appliedConstraints = ref({
@@ -170,6 +172,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
       activePreset: activePreset.value,
       result: result.value,
       resultMode: resultMode.value,
+      resultProvider: resultProvider.value,
       resultHint: resultHint.value,
       resultSummary: resultSummary.value,
       appliedConstraints: { ...appliedConstraints.value },
@@ -187,6 +190,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
     activePreset.value = snapshot.activePreset ?? ''
     result.value = snapshot.result ?? null
     resultMode.value = snapshot.resultMode ?? ''
+    resultProvider.value = snapshot.resultProvider ?? ''
     resultHint.value = snapshot.resultHint ?? ''
     resultSummary.value = snapshot.resultSummary ?? ''
     appliedConstraints.value = {
@@ -226,6 +230,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
   function setSchedulingResult(payload: {
     result: SchedulingResult
     resultMode: 'live' | 'mock'
+    resultProvider?: 'coze' | 'deepseek' | ''
     resultHint?: string
     resultSummary?: string
     appliedConstraints?: {
@@ -236,6 +241,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
   }) {
     result.value = payload.result
     resultMode.value = payload.resultMode
+    resultProvider.value = payload.resultProvider ?? ''
     resultHint.value = payload.resultHint ?? ''
     resultSummary.value = payload.resultSummary ?? ''
     if (payload.appliedConstraints) {
@@ -248,6 +254,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
   function clearSchedulingResult() {
     result.value = null
     resultMode.value = ''
+    resultProvider.value = ''
     resultHint.value = ''
     resultSummary.value = ''
     generatedAt.value = null
@@ -274,6 +281,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
     form,
     result,
     resultMode,
+    resultProvider,
     resultHint,
     resultSummary,
     appliedConstraints,
