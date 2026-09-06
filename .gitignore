@@ -1,4 +1,5 @@
 uploads/
+docker/data/
 
 # --- 依赖与构建产物 ---
 node_modules/

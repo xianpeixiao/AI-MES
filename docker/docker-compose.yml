@@ -1,0 +1,27 @@
+# 在项目根目录执行：docker compose -f docker/docker-compose.yml up -d
+# 如需使用根目录 .env：docker compose --env-file .env -f docker/docker-compose.yml up -d
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "${DB_PASSWORD:-root}"
+      MYSQL_ROOT_HOST: "%"
+      # sql/init.sql 使用固定库名 AI-MES，与后端默认配置一致。
+      MYSQL_DATABASE: AI-MES
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${DB_PORT:-3306}:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      # 仅在数据卷首次初始化时执行，自动创建表并导入演示数据。
+      - ../sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysql -h 127.0.0.1 -uroot -D AI-MES -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
